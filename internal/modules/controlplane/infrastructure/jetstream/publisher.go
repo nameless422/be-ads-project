@@ -16,5 +16,5 @@ func NewPublisher(client *msgjs.Client) *Publisher {
 }
 
 func (p *Publisher) PublishCollectJob(ctx context.Context, job messagingdomain.CollectJob) error {
-	return p.client.PublishJSON(ctx, msgjs.CollectJobsSubject, job)
+	return p.client.PublishJSON(ctx, msgjs.CollectJobsShardSubject(job.Platform, job.ShardID), job)
 }

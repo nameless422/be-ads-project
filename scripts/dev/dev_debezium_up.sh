@@ -13,7 +13,7 @@ DEBEZIUM_IMAGE="${DEBEZIUM_IMAGE:-quay.io/debezium/server:3.4.3.Final}"
 mkdir -p "${DATA_DIR}"
 
 if ! docker ps --format '{{.Names}}' | grep -qx "be-ads-raw-mysql"; then
-  echo "raw mysql is not running; start the base stack first with ./scripts/dev/dev_phase1_stack_up.sh"
+  echo "raw mysql is not running; start the base stack first with ./scripts/dev/dev_base_stack_up.sh"
   exit 1
 fi
 

@@ -1,5 +1,7 @@
 # ADR-001 目标技术栈确认
 
+这份文档只回答一个问题：为什么当前项目选择这套技术栈。
+
 状态：
 
 - accepted
@@ -134,32 +136,6 @@
 
 - 标准化程度高
 - 后续可接 Prometheus / Grafana / Tempo / Loki
-
-## 初期实施顺序
-
-### Phase 1
-
-- 固化技术栈和目录边界
-- 本地基础设施统一成 `docker compose`
-- 引入 `NATS JetStream`
-- 拆出 `control-plane / collector-worker / transformer-worker / bi-api`
-
-### Phase 2
-
-- collector 只写 `raw mysql`
-- transformer 消费 `raw.events`
-- serving mysql / clickhouse 投影稳定
-
-### Phase 3
-
-- collector 写 `outbox_events`
-- Debezium 监听 outbox 并转发消息
-
-### Phase 4
-
-- 全链路 OTel
-- K8S 部署
-- 弹性扩容与死信重放
 
 ## 不选其他主方案的原因
 

@@ -58,7 +58,7 @@ func (s *Service) logNormalized(batch *transformationdomain.NormalizedBatch) {
 	payload := batch.Payload
 	profile := batch.Collected.Target.Profile
 	s.logger.Printf(
-		"[transformation] normalized profile=%s platform=%s object=%s raw=%d campaigns=%d adgroups=%d ads=%d insights=%d has_more=%t next_cursor=%s",
+		"[transformation] normalized profile=%s platform=%s object=%s raw=%d campaigns=%d adgroups=%d ads=%d insights=%d search_terms=%d has_more=%t next_cursor=%s",
 		profile.ID,
 		profile.Platform,
 		profile.ObjectType,
@@ -67,6 +67,7 @@ func (s *Service) logNormalized(batch *transformationdomain.NormalizedBatch) {
 		len(payload.AdGroups),
 		len(payload.Ads),
 		len(payload.Insights),
+		len(payload.SearchTerms),
 		batch.Collected.HasMore,
 		batch.Collected.NextCursor,
 	)
@@ -82,6 +83,9 @@ func (s *Service) logNormalized(batch *transformationdomain.NormalizedBatch) {
 	}
 	for _, item := range payload.Insights {
 		s.logNormalizedItem(profile.ID, "insight", item)
+	}
+	for _, item := range payload.SearchTerms {
+		s.logNormalizedItem(profile.ID, "search_term", item)
 	}
 }
 

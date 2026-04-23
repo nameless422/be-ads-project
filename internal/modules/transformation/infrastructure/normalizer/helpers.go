@@ -21,6 +21,17 @@ func parseRFC3339Ptr(raw string) *time.Time {
 	return &value
 }
 
+func parseDatePtr(raw string) *time.Time {
+	if raw == "" {
+		return nil
+	}
+	value, err := time.Parse("2006-01-02", raw)
+	if err != nil {
+		return nil
+	}
+	return &value
+}
+
 func parseDate(raw string) time.Time {
 	value, err := time.Parse("2006-01-02", raw)
 	if err != nil {

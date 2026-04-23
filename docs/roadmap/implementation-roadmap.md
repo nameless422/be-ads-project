@@ -1,5 +1,7 @@
 # Implementation Roadmap
 
+这份文档只负责记录当前状态、已完成项和后续迭代顺序，不重复展开整体架构和技术选型说明。
+
 这份路线图把当前技术方案拆成可以连续推进的阶段，目标是把系统逐步落到：
 
 - `control-plane`
@@ -31,9 +33,9 @@
   - `snapshots`
   - `campaigns`
   - `insights summary`
-- 本地 Phase 1 基础设施已可通过纯 `docker run` 启动
+- 本地基础设施已可通过纯 `docker run` 启动
 - 已有自动化验收脚本：
-  - [verify_phase1.sh](/Users/zhongyi.zhang/project/go/be_ads_project/scripts/verify/verify_phase1.sh)
+  - [verify_local_stack.sh](/Users/zhongyi.zhang/project/go/be_ads_project/scripts/verify/verify_local_stack.sh)
 
 ### 当前边界
 
@@ -44,7 +46,7 @@
 - `OTel tracing/metrics/logs` 还没接入代码
 - 任务分发和 worker 租约仍是轻量实现
 
-## Phase 1
+## 里程碑 1
 
 目标：先把异步链路和分层边界跑通。
 
@@ -59,7 +61,7 @@
 
 这一阶段已经完成。
 
-## Phase 2
+## 里程碑 2
 
 目标：把 `raw 数据入库` 和 `raw 事件投递` 变成更可靠的一致性链路。
 
@@ -91,7 +93,7 @@
 
 下一步就是把 relay 从应用内轮询升级为 `Debezium CDC`。
 
-## Phase 3
+## 里程碑 3
 
 目标：引入 `Debezium CDC`，把 outbox 事件正式解耦为 CDC 流。
 
@@ -125,7 +127,7 @@
 - outbox 清理策略
 - 多环境部署配置
 
-## Phase 4
+## 里程碑 4
 
 目标：把服务治理切到 `Kratos`。
 
@@ -170,7 +172,7 @@
   - `GET /api/bi/snapshots`
   - control-plane / collector-worker / transformer-worker 启停与日志
 
-## Phase 5
+## 里程碑 5
 
 目标：接入 `OpenTelemetry` 和生产级观测。
 
@@ -202,7 +204,7 @@
 - 一条 job 能跨 4 层追踪
 - Prometheus/Grafana 可观测关键指标
 
-## Phase 6
+## 里程碑 6
 
 目标：提升扩展性和生产稳定性。
 

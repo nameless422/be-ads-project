@@ -29,6 +29,22 @@
 - BI HTTP 查询接口
 - raw outbox + Debezium CDC 链路
 
+## 开发入口
+
+优先使用 `Makefile`，这样比直接记脚本路径更稳定：
+
+```bash
+make help
+make up
+make test
+make verify
+make down
+```
+
+协作约定和提交规范见：
+
+- [CONTRIBUTING.md](/Users/zhongyi.zhang/project/go/be_ads_project/CONTRIBUTING.md)
+
 ## 推荐目录结构
 
 当前仓库建议按下面的方式理解：
@@ -79,21 +95,20 @@ internal/
 
 scripts/
   dev/
-    dev_phase1_stack_*.sh    本地 MySQL / ClickHouse / NATS 基础设施
+    dev_base_stack_*.sh      本地 MySQL / ClickHouse / NATS 基础设施
     dev_debezium_*.sh        Debezium 本地联调
-    dev_stack_*.sh           docker compose 辅助脚本
   ops/
     start.sh                 启动 4 个服务
     stop.sh                  停止 4 个服务
     status.sh                查看状态与最近日志
   verify/
-    verify_phase1.sh         Phase 1 验收
-    verify_phase3_debezium.sh Phase 3 验收
+    verify_local_stack.sh    本地主链路验收
+    verify_debezium_pipeline.sh Debezium 链路验收
 
 docs/
   architecture/              当前生效的架构与 ADR
   runbooks/                  平台接入和联调手册
-  roadmap/                   阶段路线图
+  roadmap/                   里程碑路线图
   archive/                   历史设计草案
 ```
 
@@ -113,12 +128,29 @@ docs/
 
 ## 本地运行
 
-### Phase 1 拆分服务
+### 推荐方式
+
+```bash
+make up
+make status
+make test
+make verify
+make down
+```
+
+或者直接用脚本：
+
+```bash
+./scripts/ops/up.sh
+./scripts/ops/down.sh
+```
+
+### 本地主链路
 
 先启动基础设施：
 
 ```bash
-./scripts/dev/dev_phase1_stack_up.sh
+./scripts/dev/dev_base_stack_up.sh
 ```
 
 再启动 4 个服务：
@@ -136,10 +168,10 @@ docs/
 自动验收：
 
 ```bash
-./scripts/verify/verify_phase1.sh
+./scripts/verify/verify_local_stack.sh
 ```
 
-### Phase 4 Kratos
+### 服务运行时
 
 当前 4 个入口服务都已经切到 `Kratos` app runtime：
 
@@ -154,16 +186,16 @@ docs/
 - panic recovery
 - 统一优雅停机
 
-### Phase 3 Debezium
+### Debezium 链路
 
 如果要验证 `outbox -> Debezium -> JetStream`：
 
 ```bash
-./scripts/dev/dev_phase1_stack_down.sh
-./scripts/dev/dev_phase1_stack_up.sh
+./scripts/dev/dev_base_stack_down.sh
+./scripts/dev/dev_base_stack_up.sh
 ./scripts/dev/dev_debezium_up.sh
 BE_OUTBOX_TRANSPORT=debezium ./scripts/ops/start.sh
-./scripts/verify/verify_phase3_debezium.sh
+./scripts/verify/verify_debezium_pipeline.sh
 ```
 
 如果某个 Debezium 镜像版本在本机上不稳定，可以覆盖：
@@ -187,7 +219,7 @@ DEBEZIUM_IMAGE=quay.io/debezium/server:3.4.3.Final ./scripts/dev/dev_debezium_up
 停止基础设施：
 
 ```bash
-./scripts/dev/dev_phase1_stack_down.sh
+./scripts/dev/dev_base_stack_down.sh
 ```
 
 日志位于：
@@ -234,10 +266,7 @@ export BE_GOOGLE_ADS_REFRESH_TOKEN=your_refresh_token
 
 完整执行说明见：
 
-- [Google Ads Test To Real Runbook](/Users/zhongyi.zhang/project/go/be_ads_project/docs/runbooks/google-ads-test-to-real-runbook.md)
-- [Distributed Raw Transform BI Architecture](/Users/zhongyi.zhang/project/go/be_ads_project/docs/architecture/distributed-raw-transform-bi-architecture.md)
-- [ADR-001 Target Stack](/Users/zhongyi.zhang/project/go/be_ads_project/docs/architecture/adr-001-target-stack.md)
-- [Implementation Roadmap](/Users/zhongyi.zhang/project/go/be_ads_project/docs/roadmap/implementation-roadmap.md)
+- [项目总文档](/Users/zhongyi.zhang/project/go/be_ads_project/docs/README.md)
 
 ## 目标技术栈
 
@@ -250,30 +279,46 @@ export BE_GOOGLE_ADS_REFRESH_TOKEN=your_refresh_token
 - `Debezium Outbox / CDC`
 - `OpenTelemetry`
 
-对应决策文档：
+## Phase 6 扩展性治理
 
-- [ADR-001 Target Stack](/Users/zhongyi.zhang/project/go/be_ads_project/docs/architecture/adr-001-target-stack.md)
+当前已经补上的治理能力包括：
+
+- `JetStream` 按平台 subject 分片
+  - `collect.jobs.<platform>.shard.<id>`
+  - `raw.events.<platform>`
+- `control-plane` 会把 shard 分配结果写入 `raw mysql`
+  - `worker_leases`
+  - `shard_assignments`
+- `collector-worker` 会定期 heartbeat 并只消费自己持有的 shard
+- worker 支持按平台过滤消费
+  - `BE_WORKER_PLATFORMS=google_ads`
+- worker 支持并发和回压控制
+  - `BE_COLLECTOR_CONCURRENCY`
+  - `BE_COLLECTOR_FETCH_BATCH`
+  - `BE_TRANSFORMER_CONCURRENCY`
+  - `BE_TRANSFORMER_FETCH_BATCH`
+- lease / shard 相关环境变量
+  - `BE_WORKER_ID`
+  - `BE_SHARD_COUNT`
+  - `BE_LEASE_TTL`
+  - `BE_HEARTBEAT_INTERVAL`
+- 消息失败支持 `DLQ`
+  - `dlq.collect_job.<platform>`
+  - `dlq.raw_event.<platform>`
+- 已具备 DLQ、replay 和 retention 相关治理能力
+
+整体说明见：
+
+- [项目总文档](/Users/zhongyi.zhang/project/go/be_ads_project/docs/README.md)
 
 ## 本地基础设施
 
-启动本地基础设施：
+当前统一使用基础启动脚本：
 
 ```bash
-./scripts/dev/dev_stack_up.sh
+./scripts/dev/dev_base_stack_up.sh
+./scripts/dev/dev_base_stack_down.sh
 ```
-
-关闭本地基础设施：
-
-```bash
-./scripts/dev/dev_stack_down.sh
-```
-
-本地 `docker compose` 默认会拉起：
-
-- `raw-mysql`
-- `serving-mysql`
-- `clickhouse`
-- `nats` with `JetStream`
 - `otel-collector`
 
 对应配置模板：

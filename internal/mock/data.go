@@ -136,6 +136,22 @@ func Profiles(accounts []domain.PlatformAccount) []domain.SyncProfile {
 				UpdatedAt:             now,
 			})
 		}
+		if account.Platform == domain.PlatformGoogleAds {
+			profiles = append(profiles, domain.SyncProfile{
+				ID:                    fmt.Sprintf("profile_%s_%s", account.ID, domain.ObjectTypeSearchTerm),
+				PlatformAccountID:     account.ID,
+				Platform:              account.Platform,
+				ObjectType:            domain.ObjectTypeSearchTerm,
+				SyncMode:              domain.SyncModeIncremental,
+				ScheduleType:          domain.ScheduleTypeCron,
+				ScheduleExpr:          "*/10 * * * * *",
+				LookbackWindowMinutes: 180,
+				WatermarkField:        "updated_at",
+				WatermarkValue:        now.Add(-2 * time.Hour).Format(time.RFC3339),
+				IsEnabled:             true,
+				UpdatedAt:             now,
+			})
+		}
 	}
 	return profiles
 }

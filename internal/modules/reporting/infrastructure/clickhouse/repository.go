@@ -41,18 +41,41 @@ func (r *Repository) QueryInsightSummary(ctx context.Context, filter biquerydoma
 	}
 
 	query := `
-		SELECT platform, platform_account_id, stat_date,
-			sum(impressions) AS impressions,
-			sum(clicks) AS clicks,
-			sum(toDecimal64(spend, 4)) AS spend,
-			sum(toDecimal64(conversions, 4)) AS conversions,
-			sum(reach) AS reach
-		FROM ` + r.database + `.olap_insights FINAL
+		SELECT
+			platform,
+			platform_account_id,
+			stat_date,
+			impressions,
+			clicks,
+			spend,
+			conversions,
+			all_conversions,
+			conversions_value,
+			if(conversions = toDecimal64(0, 4), toDecimal64(0, 4), spend / conversions) AS cost_per_conversion,
+			if(all_conversions = toDecimal64(0, 4), toDecimal64(0, 4), spend / all_conversions) AS cost_per_all_conversions,
+			reach
+		FROM (
+			SELECT
+				platform,
+				platform_account_id,
+				stat_date,
+				sum(impressions) AS impressions,
+				sum(clicks) AS clicks,
+				sum(spend) AS spend,
+				sum(conversions) AS conversions,
+				sum(all_conversions) AS all_conversions,
+				sum(conversions_value) AS conversions_value,
+				sum(reach) AS reach
+			FROM ` + r.database + `.olap_insights FINAL
 	`
 	if len(clauses) > 0 {
 		query += " WHERE " + strings.Join(clauses, " AND ")
 	}
-	query += " GROUP BY platform, platform_account_id, stat_date ORDER BY stat_date, platform, platform_account_id"
+	query += `
+			GROUP BY platform, platform_account_id, stat_date
+		)
+		ORDER BY stat_date, platform, platform_account_id
+	`
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -68,7 +91,24 @@ func (r *Repository) QueryInsightSummary(ctx context.Context, filter biquerydoma
 		var statDate time.Time
 		var spend string
 		var conversions string
-		if err := rows.Scan(&platform, &accountID, &statDate, &item.Impressions, &item.Clicks, &spend, &conversions, &item.Reach); err != nil {
+		var allConversions string
+		var conversionsValue string
+		var costPerConversion string
+		var costPerAllConversions string
+		if err := rows.Scan(
+			&platform,
+			&accountID,
+			&statDate,
+			&item.Impressions,
+			&item.Clicks,
+			&spend,
+			&conversions,
+			&allConversions,
+			&conversionsValue,
+			&costPerConversion,
+			&costPerAllConversions,
+			&item.Reach,
+		); err != nil {
 			return nil, err
 		}
 		item.Platform = rootdomain.Platform(platform)
@@ -76,6 +116,246 @@ func (r *Repository) QueryInsightSummary(ctx context.Context, filter biquerydoma
 		item.StatDate = statDate
 		item.Spend = spend
 		item.Conversions = conversions
+		item.AllConversions = allConversions
+		item.ConversionsValue = conversionsValue
+		item.CostPerConversion = costPerConversion
+		item.CostPerAllConversions = costPerAllConversions
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (r *Repository) QueryInsightDetails(ctx context.Context, filter biquerydomain.InsightDetailFilter) ([]biquerydomain.InsightDetailRow, error) {
+	args := make([]any, 0, 10)
+	clauses := make([]string, 0, 8)
+
+	if filter.Platform != "" {
+		clauses = append(clauses, "platform = ?")
+		args = append(args, filter.Platform)
+	}
+	if filter.AccountID != "" {
+		clauses = append(clauses, "platform_account_id = ?")
+		args = append(args, filter.AccountID)
+	}
+	if !filter.DateFrom.IsZero() {
+		clauses = append(clauses, "stat_date >= ?")
+		args = append(args, filter.DateFrom)
+	}
+	if !filter.DateTo.IsZero() {
+		clauses = append(clauses, "stat_date <= ?")
+		args = append(args, filter.DateTo)
+	}
+	if filter.EntityLevel != "" {
+		clauses = append(clauses, "entity_level = ?")
+		args = append(args, filter.EntityLevel)
+	}
+	if filter.Device != "" {
+		clauses = append(clauses, "device = ?")
+		args = append(args, filter.Device)
+	}
+	if filter.Network != "" {
+		clauses = append(clauses, "network = ?")
+		args = append(args, filter.Network)
+	}
+
+	query := `
+		SELECT platform, platform_account_id, entity_level, entity_id, platform_ad_group_id, platform_ad_id,
+			stat_date, device, network, impressions, clicks, toString(spend), toString(ctr), toString(cpc), toString(cpm),
+			toString(conversions), toString(all_conversions), toString(conversions_value), toString(cost_per_conversion),
+			toString(cost_per_all_conversions), reach
+		FROM ` + r.database + `.olap_insights FINAL
+	`
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+	query += " ORDER BY stat_date DESC, platform, platform_account_id, entity_level, entity_id"
+
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 200
+	}
+	query += " LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]biquerydomain.InsightDetailRow, 0, limit)
+	for rows.Next() {
+		var item biquerydomain.InsightDetailRow
+		var platform string
+		var entityLevel string
+		if err := rows.Scan(
+			&platform,
+			&item.PlatformAccountID,
+			&entityLevel,
+			&item.EntityID,
+			&item.PlatformAdGroupID,
+			&item.PlatformAdID,
+			&item.StatDate,
+			&item.Device,
+			&item.Network,
+			&item.Impressions,
+			&item.Clicks,
+			&item.Spend,
+			&item.CTR,
+			&item.CPC,
+			&item.CPM,
+			&item.Conversions,
+			&item.AllConversions,
+			&item.ConversionsValue,
+			&item.CostPerConversion,
+			&item.CostPerAllConversions,
+			&item.Reach,
+		); err != nil {
+			return nil, err
+		}
+		item.Platform = rootdomain.Platform(platform)
+		item.EntityLevel = rootdomain.ObjectType(entityLevel)
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (r *Repository) QueryCampaignDiagnostics(ctx context.Context, filter biquerydomain.CampaignDiagnosticFilter) ([]biquerydomain.CampaignDiagnosticRow, error) {
+	args := make([]any, 0, 6)
+	clauses := make([]string, 0, 4)
+
+	if filter.Platform != "" {
+		clauses = append(clauses, "platform = ?")
+		args = append(args, filter.Platform)
+	}
+	if filter.AccountID != "" {
+		clauses = append(clauses, "platform_account_id = ?")
+		args = append(args, filter.AccountID)
+	}
+	if !filter.DateFrom.IsZero() {
+		clauses = append(clauses, "stat_date >= ?")
+		args = append(args, filter.DateFrom)
+	}
+	if !filter.DateTo.IsZero() {
+		clauses = append(clauses, "stat_date <= ?")
+		args = append(args, filter.DateTo)
+	}
+
+	query := `
+		SELECT platform, platform_account_id, platform_campaign_id, stat_date,
+			toString(search_impression_share), toString(search_top_impression_share), toString(search_absolute_top_impression_share)
+		FROM ` + r.database + `.olap_campaign_diagnostics FINAL
+	`
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+	query += " ORDER BY stat_date DESC, platform, platform_account_id, platform_campaign_id"
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 200
+	}
+	query += " LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]biquerydomain.CampaignDiagnosticRow, 0, limit)
+	for rows.Next() {
+		var item biquerydomain.CampaignDiagnosticRow
+		var platform string
+		if err := rows.Scan(
+			&platform,
+			&item.PlatformAccountID,
+			&item.PlatformCampaignID,
+			&item.StatDate,
+			&item.SearchImpressionShare,
+			&item.SearchTopImpressionShare,
+			&item.SearchAbsoluteTopImpressionShare,
+		); err != nil {
+			return nil, err
+		}
+		item.Platform = rootdomain.Platform(platform)
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (r *Repository) QuerySearchTerms(ctx context.Context, filter biquerydomain.SearchTermFilter) ([]biquerydomain.SearchTermRow, error) {
+	args := make([]any, 0, 8)
+	clauses := make([]string, 0, 6)
+
+	if filter.Platform != "" {
+		clauses = append(clauses, "platform = ?")
+		args = append(args, filter.Platform)
+	}
+	if filter.AccountID != "" {
+		clauses = append(clauses, "platform_account_id = ?")
+		args = append(args, filter.AccountID)
+	}
+	if !filter.DateFrom.IsZero() {
+		clauses = append(clauses, "stat_date >= ?")
+		args = append(args, filter.DateFrom)
+	}
+	if !filter.DateTo.IsZero() {
+		clauses = append(clauses, "stat_date <= ?")
+		args = append(args, filter.DateTo)
+	}
+	if filter.MatchType != "" {
+		clauses = append(clauses, "search_term_match_type = ?")
+		args = append(args, filter.MatchType)
+	}
+	if filter.SearchTermQuery != "" {
+		clauses = append(clauses, "positionCaseInsensitiveUTF8(search_term, ?) > 0")
+		args = append(args, filter.SearchTermQuery)
+	}
+
+	query := `
+		SELECT platform, platform_account_id, platform_campaign_id, platform_ad_group_id, search_term, search_term_match_type,
+			stat_date, impressions, clicks, toString(spend), toString(conversions), toString(conversions_value)
+		FROM ` + r.database + `.olap_search_terms FINAL
+	`
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+	query += " ORDER BY stat_date DESC, conversions_value DESC, clicks DESC, search_term"
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 200
+	}
+	query += " LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]biquerydomain.SearchTermRow, 0, limit)
+	for rows.Next() {
+		var item biquerydomain.SearchTermRow
+		var platform string
+		if err := rows.Scan(
+			&platform,
+			&item.PlatformAccountID,
+			&item.PlatformCampaignID,
+			&item.PlatformAdGroupID,
+			&item.SearchTerm,
+			&item.SearchTermMatchType,
+			&item.StatDate,
+			&item.Impressions,
+			&item.Clicks,
+			&item.Spend,
+			&item.Conversions,
+			&item.ConversionsValue,
+		); err != nil {
+			return nil, err
+		}
+		item.Platform = rootdomain.Platform(platform)
 		items = append(items, item)
 	}
 	return items, rows.Err()

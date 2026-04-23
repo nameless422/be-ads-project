@@ -16,5 +16,5 @@ func NewPublisher(client *msgjs.Client) *Publisher {
 }
 
 func (p *Publisher) PublishRawEvent(ctx context.Context, event messagingdomain.RawEvent) error {
-	return p.client.PublishJSON(ctx, msgjs.RawEventsSubject, event)
+	return p.client.PublishJSON(ctx, msgjs.RawEventsShardSubject(event.Platform, event.ShardID), event)
 }

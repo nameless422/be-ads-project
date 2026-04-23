@@ -1,5 +1,7 @@
 # Google Ads Test Account 接入与切换 Runbook
 
+这份文档只保留 Google Ads 接入和切换操作，不重复解释项目整体架构。
+
 ## 目标
 
 这份文档解决两件事：

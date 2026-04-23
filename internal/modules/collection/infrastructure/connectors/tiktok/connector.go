@@ -42,6 +42,10 @@ func (c *Connector) FetchInsights(_ context.Context, req meta.FetchRequest) (*me
 	return fetchMock(req)
 }
 
+func (c *Connector) FetchSearchTerms(_ context.Context, req meta.FetchRequest) (*meta.FetchResult, error) {
+	return fetchMock(req)
+}
+
 func fetchMock(req meta.FetchRequest) (*meta.FetchResult, error) {
 	records, err := mock.RawRecords(req.AccountContext.Account, req.ObjectType)
 	if err != nil {

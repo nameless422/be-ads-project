@@ -10,7 +10,9 @@ import (
 	ingestionprovider "be_ads_project/internal/modules/collection/infrastructure/provider"
 	controlplaneapp "be_ads_project/internal/modules/controlplane/application"
 	controlplanepub "be_ads_project/internal/modules/controlplane/infrastructure/jetstream"
+	controlmysql "be_ads_project/internal/modules/controlplane/infrastructure/mysql"
 	"be_ads_project/internal/platform/kratosx"
+	mysqlplatform "be_ads_project/internal/platform/mysql"
 	msgjs "be_ads_project/internal/shared/messaging/infrastructure/jetstream"
 
 	kratos "github.com/go-kratos/kratos/v2"
@@ -34,9 +36,19 @@ func main() {
 		log.Fatalf("ensure jetstream streams: %v", err)
 	}
 
+	rawDB, err := mysqlplatform.Open(cfg.RawMySQL)
+	if err != nil {
+		log.Fatalf("open raw mysql: %v", err)
+	}
+	defer rawDB.Close()
+	leaseStore := controlmysql.NewLeaseStore(rawDB)
+	if err := leaseStore.EnsureSchema(ctx); err != nil {
+		log.Fatalf("ensure lease schema: %v", err)
+	}
+
 	provider := ingestionprovider.NewStaticProvider()
 	publisher := controlplanepub.NewPublisher(client)
-	service := controlplaneapp.NewService(provider, publisher, logger)
+	service := controlplaneapp.NewService(provider, publisher, leaseStore, cfg.ShardCount, logger)
 
 	runLoop := func(ctx context.Context) error {
 		runOnce := func() {

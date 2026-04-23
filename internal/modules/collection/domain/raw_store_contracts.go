@@ -14,6 +14,8 @@ type RawStore interface {
 	ListPendingOutbox(context.Context, int) ([]OutboxEvent, error)
 	MarkOutboxPublished(context.Context, int64, time.Time) error
 	MarkOutboxFailed(context.Context, int64, string, time.Time) error
+	DeleteRawRecordsBefore(context.Context, time.Time, int) (int64, error)
+	DeletePublishedOutboxBefore(context.Context, time.Time, int) (int64, error)
 }
 
 type SaveBatchInput struct {

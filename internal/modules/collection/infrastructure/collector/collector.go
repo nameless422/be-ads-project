@@ -94,6 +94,8 @@ func (c *MetaCollector) fetchByObjectType(ctx context.Context, connector meta.Co
 		return connector.FetchAds(ctx, req)
 	case rootdomain.ObjectTypeInsight:
 		return connector.FetchInsights(ctx, req)
+	case rootdomain.ObjectTypeSearchTerm:
+		return connector.FetchSearchTerms(ctx, req)
 	default:
 		return nil, fmt.Errorf("unsupported object type %s", req.ObjectType)
 	}

@@ -43,6 +43,8 @@ func (c *realClient) fetch(ctx context.Context, req meta.FetchRequest) (*meta.Fe
 		return c.fetchAds(ctx, req, accessToken)
 	case domain.ObjectTypeInsight:
 		return c.fetchInsights(ctx, req, accessToken)
+	case domain.ObjectTypeSearchTerm:
+		return c.fetchSearchTerms(ctx, req, accessToken)
 	default:
 		return nil, fmt.Errorf("google ads real mode does not support object type %s", req.ObjectType)
 	}
@@ -90,10 +92,30 @@ func (c *realClient) refreshAccessToken(ctx context.Context, credential domain.A
 }
 
 func (c *realClient) fetchCampaigns(ctx context.Context, req meta.FetchRequest, accessToken string) (*meta.FetchResult, error) {
-	query := `SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, campaign_budget.amount_micros FROM campaign ORDER BY campaign.id LIMIT 50`
+	query := `SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, campaign.start_date, campaign.end_date, campaign.bidding_strategy_type, campaign_budget.amount_micros FROM campaign ORDER BY campaign.id LIMIT 200`
 	chunks, err := c.searchStream(ctx, req, accessToken, query)
 	if err != nil {
 		return nil, err
+	}
+	diagnosticQuery := `SELECT campaign.id, segments.date, metrics.search_impression_share, metrics.search_top_impression_share, metrics.search_absolute_top_impression_share FROM campaign WHERE segments.date DURING YESTERDAY ORDER BY campaign.id LIMIT 200`
+	diagnosticChunks, err := c.searchStream(ctx, req, accessToken, diagnosticQuery)
+	if err != nil {
+		return nil, err
+	}
+	diagnosticsByCampaignID := make(map[string]map[string]any, 64)
+	for _, chunk := range diagnosticChunks {
+		for _, row := range chunk.Results {
+			campaignID := firstNonEmpty(row.Campaign.ID, resourceIDFromResourceName(row.Campaign.ResourceName))
+			if campaignID == "" || row.Segments.Date == "" {
+				continue
+			}
+			diagnosticsByCampaignID[campaignID] = map[string]any{
+				"date":                                 row.Segments.Date,
+				"search_impression_share":              row.Metrics.SearchImpressionShare,
+				"search_top_impression_share":          row.Metrics.SearchTopImpressionShare,
+				"search_absolute_top_impression_share": row.Metrics.SearchAbsoluteTopImpressionShare,
+			}
+		}
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -111,8 +133,14 @@ func (c *realClient) fetchCampaigns(ctx context.Context, req meta.FetchRequest, 
 					"status": row.Campaign.Status,
 				},
 				"advertising_channel_type": row.Campaign.AdvertisingChannelType,
+				"start_date":               row.Campaign.StartDate,
+				"end_date":                 row.Campaign.EndDate,
+				"bidding_strategy_type":    row.Campaign.BiddingStrategyType,
 				"campaign_budget":          microsToAmount(row.CampaignBudget.AmountMicros),
 				"updated_at":               now,
+			}
+			if diagnostics, ok := diagnosticsByCampaignID[id]; ok {
+				payload["diagnostics"] = diagnostics
 			}
 			record, err := marshalGoogleRawRecord(req, domain.ObjectTypeCampaign, id, payload)
 			if err != nil {
@@ -196,7 +224,7 @@ func (c *realClient) fetchAds(ctx context.Context, req meta.FetchRequest, access
 }
 
 func (c *realClient) fetchInsights(ctx context.Context, req meta.FetchRequest, accessToken string) (*meta.FetchResult, error) {
-	query := `SELECT campaign.id, segments.date, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.ctr, metrics.average_cpc, metrics.average_cpm, metrics.conversions FROM campaign WHERE segments.date DURING YESTERDAY ORDER BY campaign.id LIMIT 50`
+	query := `SELECT campaign.id, ad_group.id, ad_group_ad.ad.id, segments.date, segments.device, segments.ad_network_type, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.ctr, metrics.average_cpc, metrics.average_cpm, metrics.conversions, metrics.all_conversions, metrics.conversions_value, metrics.cost_per_conversion, metrics.cost_per_all_conversions FROM ad_group_ad WHERE segments.date DURING YESTERDAY ORDER BY campaign.id, ad_group.id, ad_group_ad.ad.id LIMIT 1000`
 	chunks, err := c.searchStream(ctx, req, accessToken, query)
 	if err != nil {
 		return nil, err
@@ -208,22 +236,72 @@ func (c *realClient) fetchInsights(ctx context.Context, req meta.FetchRequest, a
 			if row.Campaign.ID == "" {
 				continue
 			}
+			resourceID := firstNonEmpty(row.AdGroupAd.Ad.ID, row.AdGroup.ID, row.Campaign.ID)
 			payload := map[string]any{
 				"campaign_id": row.Campaign.ID,
+				"ad_group_id": row.AdGroup.ID,
+				"ad_id":       row.AdGroupAd.Ad.ID,
 				"segments": map[string]any{
-					"date": row.Segments.Date,
+					"date":            row.Segments.Date,
+					"device":          row.Segments.Device,
+					"ad_network_type": row.Segments.AdNetworkType,
 				},
 				"metrics": map[string]any{
-					"impressions": row.Metrics.Impressions,
-					"clicks":      row.Metrics.Clicks,
-					"cost_micros": row.Metrics.CostMicros,
-					"ctr":         row.Metrics.CTR,
-					"average_cpc": microsToAmount(row.Metrics.AverageCPC),
-					"average_cpm": microsToAmount(row.Metrics.AverageCPM),
-					"conversions": row.Metrics.Conversions,
+					"impressions":              row.Metrics.Impressions,
+					"clicks":                   row.Metrics.Clicks,
+					"cost_micros":              row.Metrics.CostMicros,
+					"ctr":                      row.Metrics.CTR,
+					"average_cpc":              microsToAmount(row.Metrics.AverageCPC),
+					"average_cpm":              microsToAmount(row.Metrics.AverageCPM),
+					"conversions":              row.Metrics.Conversions,
+					"all_conversions":          row.Metrics.AllConversions,
+					"conversions_value":        row.Metrics.ConversionsValue,
+					"cost_per_conversion":      microsToAmount(row.Metrics.CostPerConversion),
+					"cost_per_all_conversions": microsToAmount(row.Metrics.CostPerAllConversions),
 				},
 			}
-			record, err := marshalGoogleRawRecord(req, domain.ObjectTypeInsight, row.Campaign.ID, payload)
+			record, err := marshalGoogleRawRecord(req, domain.ObjectTypeInsight, resourceID, payload)
+			if err != nil {
+				return nil, err
+			}
+			records = append(records, record)
+		}
+	}
+	return buildFetchResult(req, records), nil
+}
+
+func (c *realClient) fetchSearchTerms(ctx context.Context, req meta.FetchRequest, accessToken string) (*meta.FetchResult, error) {
+	query := `SELECT campaign.id, ad_group.id, search_term_view.search_term, segments.date, segments.search_term_match_type, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.conversions_value FROM search_term_view WHERE segments.date DURING YESTERDAY ORDER BY campaign.id, ad_group.id, search_term_view.search_term LIMIT 1000`
+	chunks, err := c.searchStream(ctx, req, accessToken, query)
+	if err != nil {
+		return nil, err
+	}
+
+	records := make([]domain.RawRecord, 0)
+	for _, chunk := range chunks {
+		for _, row := range chunk.Results {
+			searchTerm := strings.TrimSpace(row.SearchTermView.SearchTerm)
+			if row.Campaign.ID == "" || searchTerm == "" {
+				continue
+			}
+			resourceID := firstNonEmpty(searchTerm, row.AdGroup.ID, row.Campaign.ID)
+			payload := map[string]any{
+				"campaign_id": row.Campaign.ID,
+				"ad_group_id": row.AdGroup.ID,
+				"search_term": searchTerm,
+				"segments": map[string]any{
+					"date":                   row.Segments.Date,
+					"search_term_match_type": row.Segments.SearchTermMatchType,
+				},
+				"metrics": map[string]any{
+					"impressions":       row.Metrics.Impressions,
+					"clicks":            row.Metrics.Clicks,
+					"cost_micros":       row.Metrics.CostMicros,
+					"conversions":       row.Metrics.Conversions,
+					"conversions_value": row.Metrics.ConversionsValue,
+				},
+			}
+			record, err := marshalGoogleRawRecord(req, domain.ObjectTypeSearchTerm, resourceID, payload)
 			if err != nil {
 				return nil, err
 			}
@@ -350,6 +428,9 @@ type googleAdsRow struct {
 		Name                   string `json:"name"`
 		Status                 string `json:"status"`
 		AdvertisingChannelType string `json:"advertisingChannelType"`
+		StartDate              string `json:"startDate"`
+		EndDate                string `json:"endDate"`
+		BiddingStrategyType    string `json:"biddingStrategyType"`
 	} `json:"campaign"`
 	CampaignBudget struct {
 		ResourceName string `json:"resourceName"`
@@ -370,16 +451,29 @@ type googleAdsRow struct {
 			Name         string `json:"name"`
 		} `json:"ad"`
 	} `json:"adGroupAd"`
+	SearchTermView struct {
+		SearchTerm string `json:"searchTerm"`
+	} `json:"searchTermView"`
 	Segments struct {
-		Date string `json:"date"`
+		Date                string `json:"date"`
+		Device              string `json:"device"`
+		AdNetworkType       string `json:"adNetworkType"`
+		SearchTermMatchType string `json:"searchTermMatchType"`
 	} `json:"segments"`
 	Metrics struct {
-		Impressions string `json:"impressions"`
-		Clicks      string `json:"clicks"`
-		CostMicros  string `json:"costMicros"`
-		CTR         string `json:"ctr"`
-		AverageCPC  string `json:"averageCpc"`
-		AverageCPM  string `json:"averageCpm"`
-		Conversions string `json:"conversions"`
+		Impressions                      string `json:"impressions"`
+		Clicks                           string `json:"clicks"`
+		CostMicros                       string `json:"costMicros"`
+		CTR                              string `json:"ctr"`
+		AverageCPC                       string `json:"averageCpc"`
+		AverageCPM                       string `json:"averageCpm"`
+		Conversions                      string `json:"conversions"`
+		AllConversions                   string `json:"allConversions"`
+		ConversionsValue                 string `json:"conversionsValue"`
+		CostPerConversion                string `json:"costPerConversion"`
+		CostPerAllConversions            string `json:"costPerAllConversions"`
+		SearchImpressionShare            string `json:"searchImpressionShare"`
+		SearchTopImpressionShare         string `json:"searchTopImpressionShare"`
+		SearchAbsoluteTopImpressionShare string `json:"searchAbsoluteTopImpressionShare"`
 	} `json:"metrics"`
 }

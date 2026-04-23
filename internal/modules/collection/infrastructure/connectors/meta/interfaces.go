@@ -15,6 +15,7 @@ type Connector interface {
 	FetchAdGroups(context.Context, FetchRequest) (*FetchResult, error)
 	FetchAds(context.Context, FetchRequest) (*FetchResult, error)
 	FetchInsights(context.Context, FetchRequest) (*FetchResult, error)
+	FetchSearchTerms(context.Context, FetchRequest) (*FetchResult, error)
 }
 
 type Registry struct {

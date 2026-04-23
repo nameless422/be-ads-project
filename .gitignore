@@ -1,5 +1,6 @@
 logs/
 run/
+.idea/
 .DS_Store
 .env
 .env.local

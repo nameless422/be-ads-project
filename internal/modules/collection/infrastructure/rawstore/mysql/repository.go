@@ -264,6 +264,38 @@ func (r *Repository) MarkOutboxFailed(ctx context.Context, id int64, lastError s
 	return err
 }
 
+func (r *Repository) DeleteRawRecordsBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	result, err := r.db.ExecContext(ctx, `
+		DELETE FROM raw_records
+		WHERE collected_at < ?
+		ORDER BY id
+		LIMIT ?
+	`, before.UTC(), limit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+func (r *Repository) DeletePublishedOutboxBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	result, err := r.db.ExecContext(ctx, `
+		DELETE FROM outbox_events
+		WHERE status = ? AND published_at IS NOT NULL AND published_at < ?
+		ORDER BY id
+		LIMIT ?
+	`, rawdomain.OutboxStatusPublished, before.UTC(), limit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 func (r *Repository) GetByIDs(ctx context.Context, ids []int64) ([]rootdomain.RawRecord, error) {
 	if len(ids) == 0 {
 		return nil, nil

@@ -42,6 +42,7 @@ func (p *Projector) Migrate(ctx context.Context) error {
 			status VARCHAR(64) NOT NULL,
 			objective VARCHAR(128) NOT NULL,
 			buying_type VARCHAR(128) NOT NULL,
+			bidding_strategy VARCHAR(128) NOT NULL,
 			daily_budget VARCHAR(64) NOT NULL,
 			lifetime_budget VARCHAR(64) NOT NULL,
 			currency VARCHAR(16) NOT NULL,
@@ -91,7 +92,28 @@ func (p *Projector) Migrate(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := p.addColumnIfMissing(ctx, "oltp_campaigns", "bidding_strategy", "ALTER TABLE oltp_campaigns ADD COLUMN bidding_strategy VARCHAR(128) NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (p *Projector) addColumnIfMissing(ctx context.Context, tableName, columnName, alterSQL string) error {
+	var count int
+	if err := p.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM information_schema.columns
+		WHERE table_schema = DATABASE()
+		  AND table_name = ?
+		  AND column_name = ?
+	`, tableName, columnName).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	_, err := p.db.ExecContext(ctx, alterSQL)
+	return err
 }
 
 func (p *Projector) Project(ctx context.Context, batch *transformationdomain.NormalizedBatch) error {
@@ -136,8 +158,8 @@ func (p *Projector) upsertCampaigns(ctx context.Context, accountID string, items
 		_, err := p.db.ExecContext(ctx, `
 			INSERT INTO oltp_campaigns (
 				platform_account_id, platform_campaign_id, platform, account_id, campaign_name, status, objective, buying_type,
-				daily_budget, lifetime_budget, currency, start_time, end_time, source_updated_at, raw_payload, ingested_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				bidding_strategy, daily_budget, lifetime_budget, currency, start_time, end_time, source_updated_at, raw_payload, ingested_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON DUPLICATE KEY UPDATE
 				platform = VALUES(platform),
 				account_id = VALUES(account_id),
@@ -145,6 +167,7 @@ func (p *Projector) upsertCampaigns(ctx context.Context, accountID string, items
 				status = VALUES(status),
 				objective = VALUES(objective),
 				buying_type = VALUES(buying_type),
+				bidding_strategy = VALUES(bidding_strategy),
 				daily_budget = VALUES(daily_budget),
 				lifetime_budget = VALUES(lifetime_budget),
 				currency = VALUES(currency),
@@ -153,7 +176,7 @@ func (p *Projector) upsertCampaigns(ctx context.Context, accountID string, items
 				source_updated_at = VALUES(source_updated_at),
 				raw_payload = VALUES(raw_payload),
 				ingested_at = VALUES(ingested_at)
-		`, item.PlatformAccountID, item.PlatformCampaignID, item.Platform, accountID, item.CampaignName, item.Status, item.Objective, item.BuyingType, item.DailyBudget, item.LifetimeBudget, item.Currency, item.StartTime, item.EndTime, item.UpdatedAt, item.RawPayload, now)
+		`, item.PlatformAccountID, item.PlatformCampaignID, item.Platform, accountID, item.CampaignName, item.Status, item.Objective, item.BuyingType, item.BiddingStrategy, item.DailyBudget, item.LifetimeBudget, item.Currency, item.StartTime, item.EndTime, item.UpdatedAt, item.RawPayload, now)
 		if err != nil {
 			return fmt.Errorf("upsert campaign %s: %w", item.PlatformCampaignID, err)
 		}

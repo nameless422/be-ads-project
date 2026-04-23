@@ -8,12 +8,13 @@ import (
 	messagingdomain "be_ads_project/internal/shared/messaging/domain"
 )
 
-func BuildCollectJob(target collectiondomain.SyncTarget, now time.Time) messagingdomain.CollectJob {
+func BuildCollectJob(target collectiondomain.SyncTarget, now time.Time, shardCount int) messagingdomain.CollectJob {
 	return messagingdomain.CollectJob{
 		JobID:             fmt.Sprintf("job_%s_%d", target.Profile.ID, now.UnixNano()),
 		TraceID:           fmt.Sprintf("trace_%s_%d", target.Profile.ID, now.UnixNano()),
 		ProfileID:         target.Profile.ID,
 		Platform:          target.Profile.Platform,
+		ShardID:           ComputeShardID(target.Profile.ID, target.Profile.Platform, target.Profile.ObjectType, shardCount),
 		PlatformAccountID: target.Profile.PlatformAccountID,
 		AccountID:         target.Bundle.Account.AccountID,
 		ObjectType:        target.Profile.ObjectType,

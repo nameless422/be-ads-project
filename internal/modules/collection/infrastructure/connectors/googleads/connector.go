@@ -69,6 +69,10 @@ func (c *Connector) FetchInsights(ctx context.Context, req meta.FetchRequest) (*
 	return c.fetch(ctx, req)
 }
 
+func (c *Connector) FetchSearchTerms(ctx context.Context, req meta.FetchRequest) (*meta.FetchResult, error) {
+	return c.fetch(ctx, req)
+}
+
 func (c *Connector) fetch(ctx context.Context, req meta.FetchRequest) (*meta.FetchResult, error) {
 	switch googleAdsMode(req.AccountContext.Credential) {
 	case "real":

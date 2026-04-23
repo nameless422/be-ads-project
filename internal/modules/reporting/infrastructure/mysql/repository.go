@@ -123,7 +123,7 @@ func (r *Repository) ListCampaigns(ctx context.Context, filter biquerydomain.Cam
 
 	query := `
 		SELECT platform, platform_account_id, account_id, platform_campaign_id, campaign_name, status, objective, buying_type,
-			daily_budget, lifetime_budget, currency, ingested_at
+			bidding_strategy, daily_budget, lifetime_budget, currency, start_time, end_time, source_updated_at, ingested_at
 		FROM oltp_campaigns
 	`
 	if len(clauses) > 0 {
@@ -141,10 +141,22 @@ func (r *Repository) ListCampaigns(ctx context.Context, filter biquerydomain.Cam
 	for rows.Next() {
 		var item biquerydomain.CampaignView
 		var platform string
-		if err := rows.Scan(&platform, &item.PlatformAccountID, &item.AccountID, &item.PlatformCampaignID, &item.CampaignName, &item.Status, &item.Objective, &item.BuyingType, &item.DailyBudget, &item.LifetimeBudget, &item.Currency, &item.IngestedAt); err != nil {
+		var startTime sql.NullTime
+		var endTime sql.NullTime
+		var sourceUpdatedAt sql.NullTime
+		if err := rows.Scan(&platform, &item.PlatformAccountID, &item.AccountID, &item.PlatformCampaignID, &item.CampaignName, &item.Status, &item.Objective, &item.BuyingType, &item.BiddingStrategy, &item.DailyBudget, &item.LifetimeBudget, &item.Currency, &startTime, &endTime, &sourceUpdatedAt, &item.IngestedAt); err != nil {
 			return nil, err
 		}
 		item.Platform = rootdomain.Platform(platform)
+		if startTime.Valid {
+			item.StartTime = startTime.Time
+		}
+		if endTime.Valid {
+			item.EndTime = endTime.Time
+		}
+		if sourceUpdatedAt.Valid {
+			item.SourceUpdatedAt = sourceUpdatedAt.Time
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()

@@ -7,6 +7,8 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 RUN_DIR="${ROOT_DIR}/run"
 LOG_DIR="${ROOT_DIR}/logs"
 
+source "${SCRIPT_DIR}/common.sh"
+
 SERVICES=(
   "control-plane"
   "collector-worker"
@@ -16,13 +18,12 @@ SERVICES=(
 
 for name in "${SERVICES[@]}"; do
   pid_file="${RUN_DIR}/${name}.pid"
-  if [[ -f "${pid_file}" ]]; then
-    pid="$(cat "${pid_file}" 2>/dev/null || true)"
-    if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
-      echo "${name}: running pid=${pid}"
-    else
-      echo "${name}: stale pid file"
-    fi
+  bin_path="${RUN_DIR}/${name}"
+  if pid="$(resolve_service_pid "${pid_file}" "${bin_path}" 2>/dev/null)"; then
+    write_pid_file "${pid_file}" "${pid}"
+    echo "${name}: running pid=${pid}"
+  elif [[ -f "${pid_file}" ]]; then
+    echo "${name}: stale pid file"
   else
     echo "${name}: stopped"
   fi

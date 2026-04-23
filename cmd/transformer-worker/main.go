@@ -3,12 +3,17 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
+	"sort"
+	"sync"
 	"time"
 
 	"be_ads_project/internal/config"
 	"be_ads_project/internal/logx"
 	rawmysql "be_ads_project/internal/modules/collection/infrastructure/rawstore/mysql"
+	controlplanedomain "be_ads_project/internal/modules/controlplane/domain"
+	controlmysql "be_ads_project/internal/modules/controlplane/infrastructure/mysql"
 	biqueryapp "be_ads_project/internal/modules/reporting/application"
 	bimysql "be_ads_project/internal/modules/reporting/infrastructure/mysql"
 	transformationapp "be_ads_project/internal/modules/transformation/application"
@@ -53,6 +58,10 @@ func main() {
 	if err := rawRepo.Migrate(ctx); err != nil {
 		log.Fatalf("migrate raw mysql: %v", err)
 	}
+	leaseStore := controlmysql.NewLeaseStore(rawDB)
+	if err := leaseStore.EnsureSchema(ctx); err != nil {
+		log.Fatalf("ensure lease schema: %v", err)
+	}
 
 	servingDB, err := mysqlplatform.Open(cfg.ServingMySQL)
 	if err != nil {
@@ -84,43 +93,115 @@ func main() {
 	transformation := transformationapp.NewService(normalizer, projectorFanout, logger)
 	service := transformationapp.NewWorkerService(rawRepo, transformation, logger)
 
-	sub, err := client.PullSubscribe(msgjs.RawEventsStream, msgjs.RawEventsSubject, msgjs.RawEventsConsumer)
-	if err != nil {
-		log.Fatalf("pull subscribe raw events: %v", err)
-	}
-
 	runLoop := func(ctx context.Context) error {
-		logger.Printf("[transformer-worker] started")
+		logger.Printf(
+			"[transformer-worker] started worker_id=%s concurrency=%d fetch_batch=%d shard_count=%d",
+			cfg.WorkerID,
+			cfg.TransformerRuntime.Concurrency,
+			cfg.TransformerRuntime.FetchBatch,
+			cfg.ShardCount,
+		)
+		go func() {
+			ticker := time.NewTicker(cfg.HeartbeatInterval)
+			defer ticker.Stop()
+			for {
+				if err := heartbeatTransformer(ctx, leaseStore, cfg); err != nil {
+					logger.Printf("[transformer-worker] heartbeat failed: %v", err)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+				}
+			}
+		}()
+
+		sem := make(chan struct{}, maxInt(1, cfg.TransformerRuntime.Concurrency))
+		var wg sync.WaitGroup
+		defer wg.Wait()
+		manager := newTransformShardSubscriptionManager(client, cfg, logger)
+
+		handleMessage := func(msg *nats.Msg) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			event, err := msgjs.DecodeMessage[messagingdomain.RawEvent](msg)
+			if err != nil {
+				if publishDeadLetter(ctx, client, logger, messagingdomain.DeadLetterEvent{
+					ID:              time.Now().UTC().Format("20060102150405.000000000"),
+					Kind:            messagingdomain.DeadLetterKindRawEvent,
+					Platform:        "",
+					OriginalStream:  msgjs.RawEventsStream,
+					OriginalSubject: msg.Subject,
+					OriginalMessage: append([]byte(nil), msg.Data...),
+					ErrorMessage:    err.Error(),
+					DeliveryCount:   deliveryCount(msg),
+					FailedAt:        time.Now().UTC(),
+				}) == nil {
+					_ = msg.Ack()
+				} else {
+					_ = msg.Nak()
+				}
+				return
+			}
+			if err := service.HandleEvent(ctx, *event); err != nil {
+				logger.Printf("[transformer-worker] handle failed event_id=%s err=%v", event.EventID, err)
+				if shouldDeadLetter(msg, cfg.NATS.MaxDeliver) {
+					if publishDeadLetter(ctx, client, logger, messagingdomain.DeadLetterEvent{
+						ID:              "dlq_" + event.EventID,
+						Kind:            messagingdomain.DeadLetterKindRawEvent,
+						Platform:        event.Platform,
+						OriginalStream:  msgjs.RawEventsStream,
+						OriginalSubject: msg.Subject,
+						OriginalMessage: append([]byte(nil), msg.Data...),
+						ErrorMessage:    err.Error(),
+						DeliveryCount:   deliveryCount(msg),
+						FailedAt:        time.Now().UTC(),
+					}) == nil {
+						_ = msg.Ack()
+						return
+					}
+				}
+				_ = msg.Nak()
+				return
+			}
+			_ = msg.Ack()
+		}
+
+		refreshTicker := time.NewTicker(cfg.HeartbeatInterval)
+		defer refreshTicker.Stop()
+
 		for {
+			if err := manager.Refresh(ctx, leaseStore, controlplanedomain.WorkerRoleTransformer, cfg.WorkerID); err != nil {
+				logger.Printf("[transformer-worker] refresh shard subscriptions failed: %v", err)
+			}
+
+			for _, sub := range manager.List() {
+				msgs, err := sub.Sub.Fetch(maxInt(1, cfg.TransformerRuntime.FetchBatch), nats.MaxWait(500*time.Millisecond))
+				if err != nil {
+					if errors.Is(err, nats.ErrTimeout) {
+						continue
+					}
+					logger.Printf("[transformer-worker] fetch failed subject=%s err=%v", sub.Subject, err)
+					continue
+				}
+
+				for _, msg := range msgs {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case sem <- struct{}{}:
+						wg.Add(1)
+						go handleMessage(msg)
+					}
+				}
+			}
+
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
+			case <-refreshTicker.C:
 			default:
-			}
-
-			msgs, err := sub.Fetch(10, nats.MaxWait(5*time.Second))
-			if err != nil {
-				if errors.Is(err, nats.ErrTimeout) {
-					continue
-				}
-				logger.Printf("[transformer-worker] fetch failed: %v", err)
-				time.Sleep(time.Second)
-				continue
-			}
-
-			for _, msg := range msgs {
-				event, err := msgjs.DecodeMessage[messagingdomain.RawEvent](msg)
-				if err != nil {
-					logger.Printf("[transformer-worker] decode failed: %v", err)
-					_ = msg.Term()
-					continue
-				}
-				if err := service.HandleEvent(ctx, *event); err != nil {
-					logger.Printf("[transformer-worker] handle failed event_id=%s err=%v", event.EventID, err)
-					_ = msg.Nak()
-					continue
-				}
-				_ = msg.Ack()
 			}
 		}
 	}
@@ -138,4 +219,149 @@ func main() {
 	if err := app.Run(); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatalf("transformer-worker failed: %v", err)
 	}
+}
+
+func shouldDeadLetter(msg *nats.Msg, maxDeliver int) bool {
+	if maxDeliver <= 0 {
+		return false
+	}
+	meta, err := msg.Metadata()
+	if err != nil {
+		return false
+	}
+	return meta.NumDelivered >= uint64(maxDeliver)
+}
+
+func deliveryCount(msg *nats.Msg) uint64 {
+	meta, err := msg.Metadata()
+	if err != nil {
+		return 0
+	}
+	return meta.NumDelivered
+}
+
+func publishDeadLetter(ctx context.Context, client *msgjs.Client, logger *log.Logger, event messagingdomain.DeadLetterEvent) error {
+	subject := msgjs.DeadLetterSubject(string(event.Kind), event.Platform)
+	if err := client.PublishJSON(ctx, subject, event); err != nil {
+		logger.Printf("[transformer-worker] dlq publish failed subject=%s err=%v", subject, err)
+		return err
+	}
+	logger.Printf("[transformer-worker] dlq published subject=%s deliveries=%d err=%s", subject, event.DeliveryCount, event.ErrorMessage)
+	return nil
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
+}
+
+type transformShardSubscription struct {
+	Assignment controlplanedomain.ShardAssignment
+	Subject    string
+	Sub        *nats.Subscription
+}
+
+type transformShardSubscriptionManager struct {
+	client *msgjs.Client
+	cfg    config.Config
+	logger *log.Logger
+
+	mu   sync.Mutex
+	subs map[string]*transformShardSubscription
+}
+
+func newTransformShardSubscriptionManager(client *msgjs.Client, cfg config.Config, logger *log.Logger) *transformShardSubscriptionManager {
+	return &transformShardSubscriptionManager{
+		client: client,
+		cfg:    cfg,
+		logger: logger,
+		subs:   make(map[string]*transformShardSubscription),
+	}
+}
+
+func (m *transformShardSubscriptionManager) Refresh(ctx context.Context, leaseStore controlplanedomain.LeaseStore, role controlplanedomain.WorkerRole, workerID string) error {
+	assignments, err := leaseStore.ListAssignmentsByWorker(ctx, role, workerID)
+	if err != nil {
+		return err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	desired := make(map[string]controlplanedomain.ShardAssignment, len(assignments))
+	for _, item := range assignments {
+		key := shardKey(item.Platform, item.ShardID)
+		desired[key] = item
+		if _, exists := m.subs[key]; exists {
+			continue
+		}
+
+		subject := msgjs.RawEventsShardSubject(item.Platform, item.ShardID)
+		durable := msgjs.TransformShardDurable(item.Platform, item.ShardID)
+		if err := m.client.EnsureConsumer(ctx, msgjs.RawEventsStream, &nats.ConsumerConfig{
+			Durable:       durable,
+			AckPolicy:     nats.AckExplicitPolicy,
+			AckWait:       m.cfg.NATS.AckWait,
+			MaxDeliver:    m.cfg.NATS.MaxDeliver,
+			MaxAckPending: maxInt(m.cfg.NATS.MaxAckPending, m.cfg.TransformerRuntime.Concurrency*m.cfg.TransformerRuntime.FetchBatch),
+			FilterSubject: subject,
+		}); err != nil {
+			return err
+		}
+		sub, err := m.client.PullSubscribe(msgjs.RawEventsStream, subject, durable)
+		if err != nil {
+			return err
+		}
+		m.subs[key] = &transformShardSubscription{
+			Assignment: item,
+			Subject:    subject,
+			Sub:        sub,
+		}
+		m.logger.Printf("[transformer-worker] assigned shard platform=%s shard=%d durable=%s", item.Platform, item.ShardID, durable)
+	}
+
+	for key, sub := range m.subs {
+		if _, keep := desired[key]; keep {
+			continue
+		}
+		_ = sub.Sub.Unsubscribe()
+		delete(m.subs, key)
+		m.logger.Printf("[transformer-worker] released shard subject=%s", sub.Subject)
+	}
+	return nil
+}
+
+func (m *transformShardSubscriptionManager) List() []*transformShardSubscription {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	items := make([]*transformShardSubscription, 0, len(m.subs))
+	for _, item := range m.subs {
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Assignment.Platform == items[j].Assignment.Platform {
+			return items[i].Assignment.ShardID < items[j].Assignment.ShardID
+		}
+		return items[i].Assignment.Platform < items[j].Assignment.Platform
+	})
+	return items
+}
+
+func heartbeatTransformer(ctx context.Context, leaseStore controlplanedomain.LeaseStore, cfg config.Config) error {
+	now := time.Now().UTC()
+	return leaseStore.HeartbeatWorker(ctx, controlplanedomain.WorkerLease{
+		Role:           controlplanedomain.WorkerRoleTransformer,
+		WorkerID:       cfg.WorkerID,
+		SupportedScope: cfg.WorkerPlatforms,
+		Capacity:       maxInt(1, cfg.TransformerRuntime.Concurrency),
+		LastSeenAt:     now,
+		ExpiresAt:      now.Add(cfg.LeaseTTL),
+	})
+}
+
+func shardKey(platform interface{ String() string }, shardID int) string {
+	return fmt.Sprintf("%s:%d", platform.String(), shardID)
 }

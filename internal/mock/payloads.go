@@ -152,6 +152,41 @@ func googleAdsRawRecords(account domain.PlatformAccount, objectType domain.Objec
 				},
 			},
 		})
+	case domain.ObjectTypeSearchTerm:
+		return marshalRecords(account, objectType, []map[string]any{
+			{
+				"campaign_id": account.AccountID + "-cmp-001",
+				"ad_group_id": account.AccountID + "-ag-001",
+				"search_term": "brand keyword",
+				"segments": map[string]any{
+					"date":                   now.AddDate(0, 0, -1).Format("2006-01-02"),
+					"search_term_match_type": "EXACT",
+				},
+				"metrics": map[string]any{
+					"impressions":       "2400",
+					"clicks":            "190",
+					"cost_micros":       "68400000",
+					"conversions":       "12",
+					"conversions_value": "360.00",
+				},
+			},
+			{
+				"campaign_id": account.AccountID + "-cmp-001",
+				"ad_group_id": account.AccountID + "-ag-001",
+				"search_term": "brand shoes",
+				"segments": map[string]any{
+					"date":                   now.AddDate(0, 0, -1).Format("2006-01-02"),
+					"search_term_match_type": "PHRASE",
+				},
+				"metrics": map[string]any{
+					"impressions":       "1800",
+					"clicks":            "105",
+					"cost_micros":       "51200000",
+					"conversions":       "7",
+					"conversions_value": "214.50",
+				},
+			},
+		})
 	default:
 		return nil, fmt.Errorf("unsupported object type %s", objectType)
 	}
@@ -236,7 +271,7 @@ func marshalRecords(account domain.PlatformAccount, objectType domain.ObjectType
 }
 
 func resourceID(item map[string]any, idx int) string {
-	for _, key := range []string{"id", "campaign_id", "adgroup_id", "ad_id"} {
+	for _, key := range []string{"id", "campaign_id", "adgroup_id", "ad_id", "search_term"} {
 		if value, ok := item[key]; ok {
 			return fmt.Sprintf("%v", value)
 		}
