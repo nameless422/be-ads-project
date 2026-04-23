@@ -73,6 +73,7 @@ type StandardAd struct {
 type StandardInsight struct {
 	Platform              Platform
 	PlatformAccountID     string
+	PlatformCampaignID    string
 	EntityLevel           ObjectType
 	EntityID              string
 	PlatformAdGroupID     string

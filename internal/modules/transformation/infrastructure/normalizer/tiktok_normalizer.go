@@ -112,20 +112,21 @@ func (n *TikTokNormalizer) Normalize(_ context.Context, records []ads.RawRecord)
 				return nil, err
 			}
 			result.Insights = append(result.Insights, ads.StandardInsight{
-				Platform:          record.Platform,
-				PlatformAccountID: record.PlatformAccountID,
-				EntityLevel:       ads.ObjectTypeCampaign,
-				EntityID:          payload.CampaignID,
-				StatDate:          parseDate(payload.StatTimeDay),
-				Impressions:       parseInt64(payload.Metrics.ShowCnt),
-				Clicks:            parseInt64(payload.Metrics.ClickCnt),
-				Spend:             payload.Metrics.StatCost,
-				CTR:               payload.Metrics.CTR,
-				CPC:               payload.Metrics.CPC,
-				CPM:               payload.Metrics.CPM,
-				Conversions:       payload.Metrics.ConvertCnt,
-				Reach:             parseInt64(payload.Metrics.Reach),
-				RawPayload:        record.Payload,
+				Platform:           record.Platform,
+				PlatformAccountID:  record.PlatformAccountID,
+				PlatformCampaignID: payload.CampaignID,
+				EntityLevel:        ads.ObjectTypeCampaign,
+				EntityID:           payload.CampaignID,
+				StatDate:           parseDate(payload.StatTimeDay),
+				Impressions:        parseInt64(payload.Metrics.ShowCnt),
+				Clicks:             parseInt64(payload.Metrics.ClickCnt),
+				Spend:              payload.Metrics.StatCost,
+				CTR:                payload.Metrics.CTR,
+				CPC:                payload.Metrics.CPC,
+				CPM:                payload.Metrics.CPM,
+				Conversions:        payload.Metrics.ConvertCnt,
+				Reach:              parseInt64(payload.Metrics.Reach),
+				RawPayload:         record.Payload,
 			})
 		}
 	}

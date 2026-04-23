@@ -12,6 +12,7 @@ import (
 	ingestionprovider "be_ads_project/internal/modules/collection/infrastructure/provider"
 	controlplanedomain "be_ads_project/internal/modules/controlplane/domain"
 	controlplanepub "be_ads_project/internal/modules/controlplane/infrastructure/jetstream"
+	reportingapp "be_ads_project/internal/modules/reporting/application"
 	reportingdomain "be_ads_project/internal/modules/reporting/domain"
 	biclickhouse "be_ads_project/internal/modules/reporting/infrastructure/clickhouse"
 	"be_ads_project/internal/modules/reporting/infrastructure/httpapi"
@@ -64,12 +65,14 @@ func main() {
 		log.Fatalf("migrate serving mysql bi: %v", err)
 	}
 	clickhouseRepo := biclickhouse.NewRepository(clickhouseDB, cfg.ClickHouse.Database)
+	uaReportService := reportingapp.NewUAReportService(clickhouseRepo, mysqlRepo)
 	controlRepo := bimysql.NewControlRepository(rawDB)
 	provider := ingestionprovider.NewStaticProvider()
 	jobPublisher := controlplanepub.NewPublisher(natsClient)
 	server := httpapi.NewServer(
 		mysqlRepo,
 		clickhouseRepo,
+		uaReportService,
 		controlRepo,
 		deadLetterReader{client: natsClient},
 		controlActionHandler{provider: provider, publisher: jobPublisher, shardCount: cfg.ShardCount},

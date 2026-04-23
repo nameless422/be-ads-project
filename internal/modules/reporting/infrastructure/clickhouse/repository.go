@@ -159,7 +159,7 @@ func (r *Repository) QueryInsightDetails(ctx context.Context, filter biquerydoma
 	}
 
 	query := `
-		SELECT platform, platform_account_id, entity_level, entity_id, platform_ad_group_id, platform_ad_id,
+		SELECT platform, platform_account_id, platform_campaign_id, entity_level, entity_id, platform_ad_group_id, platform_ad_id,
 			stat_date, device, network, impressions, clicks, toString(spend), toString(ctr), toString(cpc), toString(cpm),
 			toString(conversions), toString(all_conversions), toString(conversions_value), toString(cost_per_conversion),
 			toString(cost_per_all_conversions), reach
@@ -191,6 +191,7 @@ func (r *Repository) QueryInsightDetails(ctx context.Context, filter biquerydoma
 		if err := rows.Scan(
 			&platform,
 			&item.PlatformAccountID,
+			&item.PlatformCampaignID,
 			&entityLevel,
 			&item.EntityID,
 			&item.PlatformAdGroupID,
@@ -279,6 +280,159 @@ func (r *Repository) QueryCampaignDiagnostics(ctx context.Context, filter biquer
 			return nil, err
 		}
 		item.Platform = rootdomain.Platform(platform)
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (r *Repository) QueryUAReportRows(ctx context.Context, filter biquerydomain.UAReportFilter) ([]biquerydomain.UAAdReportRow, error) {
+	args := make([]any, 0, 16)
+	clauses := make([]string, 0, 12)
+
+	if filter.Platform != "" {
+		clauses = append(clauses, "platform = ?")
+		args = append(args, filter.Platform)
+	}
+	if filter.AccountID != "" {
+		clauses = append(clauses, "platform_account_id = ?")
+		args = append(args, filter.AccountID)
+	}
+	if !filter.DateFrom.IsZero() {
+		clauses = append(clauses, "stat_date >= ?")
+		args = append(args, filter.DateFrom)
+	}
+	if !filter.DateTo.IsZero() {
+		clauses = append(clauses, "stat_date <= ?")
+		args = append(args, filter.DateTo)
+	}
+	if filter.EntityLevel != "" {
+		clauses = append(clauses, "entity_level = ?")
+		args = append(args, filter.EntityLevel)
+	}
+	if filter.Device != "" {
+		clauses = append(clauses, "device = ?")
+		args = append(args, filter.Device)
+	}
+	if filter.Network != "" {
+		clauses = append(clauses, "network = ?")
+		args = append(args, filter.Network)
+	}
+	if filter.PlatformCampaignID != "" {
+		clauses = append(clauses, "platform_campaign_id = ?")
+		args = append(args, filter.PlatformCampaignID)
+	}
+	if filter.PlatformAdGroupID != "" {
+		clauses = append(clauses, "platform_ad_group_id = ?")
+		args = append(args, filter.PlatformAdGroupID)
+	}
+	if filter.PlatformAdID != "" {
+		clauses = append(clauses, "platform_ad_id = ?")
+		args = append(args, filter.PlatformAdID)
+	}
+
+	query := `
+		SELECT
+			platform,
+			platform_account_id,
+			platform_campaign_id,
+			entity_level,
+			entity_id,
+			platform_ad_group_id,
+			platform_ad_id,
+			stat_date,
+			device,
+			network,
+			impressions,
+			clicks,
+			toString(spend_num) AS spend,
+			toString(if(impressions = 0, 0.0, toFloat64(clicks) / toFloat64(impressions) * 100.0)) AS ctr,
+			toString(if(clicks = 0, 0.0, spend_num / toFloat64(clicks))) AS cpc,
+			toString(if(impressions = 0, 0.0, spend_num / toFloat64(impressions) * 1000.0)) AS cpm,
+			toString(conversions_num) AS conversions,
+			toString(all_conversions_num) AS all_conversions,
+			toString(conversions_value_num) AS conversions_value,
+			toString(if(conversions_num = 0, 0.0, spend_num / conversions_num)) AS cost_per_conversion,
+			toString(if(all_conversions_num = 0, 0.0, spend_num / all_conversions_num)) AS cost_per_all_conversions,
+			reach,
+			toString(if(reach = 0, 0.0, toFloat64(impressions) / toFloat64(reach))) AS frequency,
+			toString(if(spend_num = 0, 0.0, conversions_value_num / spend_num)) AS roas
+		FROM (
+			SELECT
+				platform,
+				platform_account_id,
+				platform_campaign_id,
+				entity_level,
+				entity_id,
+				platform_ad_group_id,
+				platform_ad_id,
+				stat_date,
+				device,
+				network,
+				sum(impressions) AS impressions,
+				sum(clicks) AS clicks,
+				sum(toFloat64(spend)) AS spend_num,
+				sum(toFloat64(conversions)) AS conversions_num,
+				sum(toFloat64(all_conversions)) AS all_conversions_num,
+				sum(toFloat64(conversions_value)) AS conversions_value_num,
+				sum(toInt64(reach)) AS reach
+			FROM ` + r.database + `.olap_insights FINAL
+	`
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+	query += `
+			GROUP BY platform, platform_account_id, platform_campaign_id, entity_level, entity_id, platform_ad_group_id, platform_ad_id, stat_date, device, network
+		)
+		ORDER BY stat_date DESC, platform, platform_account_id, platform_campaign_id, entity_level, entity_id
+	`
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 500
+	}
+	query += " LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]biquerydomain.UAAdReportRow, 0, limit)
+	for rows.Next() {
+		var item biquerydomain.UAAdReportRow
+		var platform string
+		var entityLevel string
+		if err := rows.Scan(
+			&platform,
+			&item.PlatformAccountID,
+			&item.PlatformCampaignID,
+			&entityLevel,
+			&item.EntityID,
+			&item.PlatformAdGroupID,
+			&item.PlatformAdID,
+			&item.StatDate,
+			&item.Device,
+			&item.Network,
+			&item.Impressions,
+			&item.Clicks,
+			&item.Spend,
+			&item.CTR,
+			&item.CPC,
+			&item.CPM,
+			&item.Conversions,
+			&item.AllConversions,
+			&item.ConversionsValue,
+			&item.CostPerConversion,
+			&item.CostPerAllConversions,
+			&item.Reach,
+			&item.Frequency,
+			&item.ROAS,
+		); err != nil {
+			return nil, err
+		}
+		item.Platform = rootdomain.Platform(platform)
+		item.EntityLevel = rootdomain.ObjectType(entityLevel)
 		items = append(items, item)
 	}
 	return items, rows.Err()

@@ -159,6 +159,7 @@ func (n *GoogleAdsNormalizer) Normalize(_ context.Context, records []ads.RawReco
 			result.Insights = append(result.Insights, ads.StandardInsight{
 				Platform:              record.Platform,
 				PlatformAccountID:     record.PlatformAccountID,
+				PlatformCampaignID:    payload.CampaignID,
 				EntityLevel:           entityLevel,
 				EntityID:              entityID,
 				PlatformAdGroupID:     payload.AdGroupID,

@@ -18,6 +18,8 @@ import (
 type SnapshotReader interface {
 	ListAccountSnapshots(context.Context) ([]biquerydomain.AccountSnapshot, error)
 	ListCampaigns(context.Context, biquerydomain.CampaignFilter) ([]biquerydomain.CampaignView, error)
+	ListGameKPIs(context.Context, biquerydomain.GameKPIQueryFilter) ([]biquerydomain.GameKPIRecord, error)
+	UpsertGameKPIs(context.Context, []biquerydomain.GameKPIRecord) error
 	Ping(context.Context) error
 }
 
@@ -26,7 +28,12 @@ type InsightReader interface {
 	QueryInsightDetails(context.Context, biquerydomain.InsightDetailFilter) ([]biquerydomain.InsightDetailRow, error)
 	QueryCampaignDiagnostics(context.Context, biquerydomain.CampaignDiagnosticFilter) ([]biquerydomain.CampaignDiagnosticRow, error)
 	QuerySearchTerms(context.Context, biquerydomain.SearchTermFilter) ([]biquerydomain.SearchTermRow, error)
+	QueryUAReportRows(context.Context, biquerydomain.UAReportFilter) ([]biquerydomain.UAAdReportRow, error)
 	Ping(context.Context) error
+}
+
+type UAReportReader interface {
+	QueryReport(context.Context, biquerydomain.UAReportFilter) ([]biquerydomain.UAReportRow, error)
 }
 
 type ControlReader interface {
@@ -50,16 +57,18 @@ type Server struct {
 	logger       *log.Logger
 	snapshotRepo SnapshotReader
 	insightRepo  InsightReader
+	uaReport     UAReportReader
 	controlRepo  ControlReader
 	dlqReader    DeadLetterReader
 	actions      ControlActionHandler
 }
 
-func NewServer(snapshotRepo SnapshotReader, insightRepo InsightReader, controlRepo ControlReader, dlqReader DeadLetterReader, actions ControlActionHandler, logger *log.Logger) *Server {
+func NewServer(snapshotRepo SnapshotReader, insightRepo InsightReader, uaReport UAReportReader, controlRepo ControlReader, dlqReader DeadLetterReader, actions ControlActionHandler, logger *log.Logger) *Server {
 	return &Server{
 		logger:       logger,
 		snapshotRepo: snapshotRepo,
 		insightRepo:  insightRepo,
+		uaReport:     uaReport,
 		controlRepo:  controlRepo,
 		dlqReader:    dlqReader,
 		actions:      actions,
@@ -74,6 +83,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/bi/campaigns", s.handleCampaigns)
 	mux.HandleFunc("/api/bi/insights/summary", s.handleInsightSummary)
 	mux.HandleFunc("/api/bi/insights/detail", s.handleInsightDetail)
+	mux.HandleFunc("/api/bi/ua-report", s.handleUAReport)
+	mux.HandleFunc("/api/bi/ua-fields", s.handleUAFields)
+	mux.HandleFunc("/api/bi/game-kpis", s.handleGameKPIs)
 	mux.HandleFunc("/api/bi/campaign-diagnostics", s.handleCampaignDiagnostics)
 	mux.HandleFunc("/api/bi/search-terms", s.handleSearchTerms)
 	mux.HandleFunc("/api/control/overview", s.handleControlOverview)
@@ -192,6 +204,58 @@ func (s *Server) handleInsightDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) handleUAReport(w http.ResponseWriter, r *http.Request) {
+	filter, err := parseUAReportFilter(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	items, err := s.uaReport.QueryReport(r.Context(), filter)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) handleUAFields(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"items": uaFieldCatalog()})
+}
+
+func (s *Server) handleGameKPIs(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		filter, err := parseGameKPIQueryFilter(r)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		items, err := s.snapshotRepo.ListGameKPIs(r.Context(), filter)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	case http.MethodPost:
+		var req biquerydomain.GameKPIUpsertRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		if len(req.Items) == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "items is required"})
+			return
+		}
+		if err := s.snapshotRepo.UpsertGameKPIs(r.Context(), req.Items); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"accepted": len(req.Items)})
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *Server) handleCampaignDiagnostics(w http.ResponseWriter, r *http.Request) {
@@ -391,6 +455,11 @@ func (s *Server) handleBIPanel(w http.ResponseWriter, r *http.Request) {
 		AccountID: filter.AccountID,
 		Limit:     100,
 	}
+	uaFilter := biquerydomain.UAReportFilter{
+		Platform:  filter.Platform,
+		AccountID: filter.AccountID,
+		Limit:     200,
+	}
 	if dateFrom := strings.TrimSpace(r.URL.Query().Get("date_from")); dateFrom != "" {
 		parsed, err := time.Parse("2006-01-02", dateFrom)
 		if err != nil {
@@ -401,6 +470,7 @@ func (s *Server) handleBIPanel(w http.ResponseWriter, r *http.Request) {
 		detailFilter.DateFrom = parsed
 		diagnosticFilter.DateFrom = parsed
 		searchTermFilter.DateFrom = parsed
+		uaFilter.DateFrom = parsed
 	}
 	if dateTo := strings.TrimSpace(r.URL.Query().Get("date_to")); dateTo != "" {
 		parsed, err := time.Parse("2006-01-02", dateTo)
@@ -412,10 +482,19 @@ func (s *Server) handleBIPanel(w http.ResponseWriter, r *http.Request) {
 		detailFilter.DateTo = parsed
 		diagnosticFilter.DateTo = parsed
 		searchTermFilter.DateTo = parsed
+		uaFilter.DateTo = parsed
 	}
 	detailFilter.EntityLevel = strings.TrimSpace(r.URL.Query().Get("entity_level"))
 	detailFilter.Device = strings.TrimSpace(r.URL.Query().Get("device"))
 	detailFilter.Network = strings.TrimSpace(r.URL.Query().Get("network"))
+	uaFilter.EntityLevel = detailFilter.EntityLevel
+	uaFilter.Device = detailFilter.Device
+	uaFilter.Network = detailFilter.Network
+	uaFilter.Country = strings.TrimSpace(r.URL.Query().Get("country"))
+	uaFilter.OS = strings.TrimSpace(r.URL.Query().Get("os"))
+	uaFilter.PlatformCampaignID = strings.TrimSpace(r.URL.Query().Get("platform_campaign_id"))
+	uaFilter.PlatformAdGroupID = strings.TrimSpace(r.URL.Query().Get("platform_ad_group_id"))
+	uaFilter.PlatformAdID = strings.TrimSpace(r.URL.Query().Get("platform_ad_id"))
 	searchTermFilter.MatchType = strings.TrimSpace(r.URL.Query().Get("match_type"))
 	searchTermFilter.SearchTermQuery = strings.TrimSpace(r.URL.Query().Get("search_term"))
 	if rawLimit := strings.TrimSpace(r.URL.Query().Get("detail_limit")); rawLimit != "" {
@@ -425,6 +504,7 @@ func (s *Server) handleBIPanel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		detailFilter.Limit = limit
+		uaFilter.Limit = limit
 	}
 	if rawLimit := strings.TrimSpace(r.URL.Query().Get("search_term_limit")); rawLimit != "" {
 		limit, err := strconv.Atoi(rawLimit)
@@ -465,8 +545,29 @@ func (s *Server) handleBIPanel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	uaReports, err := s.uaReport.QueryReport(r.Context(), uaFilter)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	gameKPIs, err := s.snapshotRepo.ListGameKPIs(r.Context(), biquerydomain.GameKPIQueryFilter{
+		Platform:           uaFilter.Platform,
+		AccountID:          uaFilter.AccountID,
+		DateFrom:           uaFilter.DateFrom,
+		DateTo:             uaFilter.DateTo,
+		Country:            uaFilter.Country,
+		OS:                 uaFilter.OS,
+		PlatformCampaignID: uaFilter.PlatformCampaignID,
+		PlatformAdGroupID:  uaFilter.PlatformAdGroupID,
+		PlatformAdID:       uaFilter.PlatformAdID,
+		Limit:              uaFilter.Limit,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-	page := buildBIPageView(filter, insightFilter, detailFilter, searchTermFilter, snapshots, campaigns, insights, insightDetails, campaignDiagnostics, searchTerms)
+	page := buildBIPageView(filter, insightFilter, detailFilter, searchTermFilter, uaFilter, snapshots, campaigns, insights, insightDetails, campaignDiagnostics, searchTerms, uaReports, gameKPIs)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = biPanelTemplate.Execute(w, page)
 }
@@ -518,6 +619,11 @@ type biPanelView struct {
 	AccountID                           string
 	DateFrom                            string
 	DateTo                              string
+	Country                             string
+	OS                                  string
+	PlatformCampaignID                  string
+	PlatformAdGroupID                   string
+	PlatformAdID                        string
 	EntityLevel                         string
 	Device                              string
 	Network                             string
@@ -531,6 +637,11 @@ type biPanelView struct {
 	InsightDetailRowCount               int
 	CampaignDiagnosticRowCount          int
 	SearchTermRowCount                  int
+	UAReportRowCount                    int
+	GameKPIRowCount                     int
+	UAAvailableFieldCount               int
+	UAIntegrationReadyFieldCount        int
+	UAPlannedFieldCount                 int
 	TotalImpressions                    int64
 	TotalClicks                         int64
 	TotalSpend                          string
@@ -546,9 +657,23 @@ type biPanelView struct {
 	SearchTermSpend                     string
 	SearchTermConversions               string
 	SearchTermConversionsValue          string
+	UAInstalls                          int64
+	UAActivations                       int64
+	UARegistrations                     int64
+	UAPurchasers                        int64
+	UATotalRevenue                      string
+	UAD1Retention                       string
+	UAD7Retention                       string
+	UAROAS                              string
+	UACPI                               string
+	UAROI                               string
+	UALTVD30                            string
+	UADataStatus                        string
 	ImpressionsSVG                      template.HTML
 	ClicksSVG                           template.HTML
 	SpendSVG                            template.HTML
+	UAInstallsSVG                       template.HTML
+	UARevenueSVG                        template.HTML
 	PlatformSummary                     []biPlatformSummary
 	AccountSummary                      []biAccountSummary
 	Snapshots                           []biquerydomain.AccountSnapshot
@@ -557,6 +682,8 @@ type biPanelView struct {
 	InsightDetails                      []biquerydomain.InsightDetailRow
 	CampaignDiagnostics                 []biquerydomain.CampaignDiagnosticRow
 	SearchTerms                         []biquerydomain.SearchTermRow
+	UAReports                           []biquerydomain.UAReportRow
+	GameKPIs                            []biquerydomain.GameKPIRecord
 }
 
 type biTrendPoint struct {
@@ -597,12 +724,15 @@ func buildBIPageView(
 	insightFilter biquerydomain.InsightSummaryFilter,
 	detailFilter biquerydomain.InsightDetailFilter,
 	searchTermFilter biquerydomain.SearchTermFilter,
+	uaFilter biquerydomain.UAReportFilter,
 	snapshots []biquerydomain.AccountSnapshot,
 	campaigns []biquerydomain.CampaignView,
 	insights []biquerydomain.InsightSummaryRow,
 	insightDetails []biquerydomain.InsightDetailRow,
 	campaignDiagnostics []biquerydomain.CampaignDiagnosticRow,
 	searchTerms []biquerydomain.SearchTermRow,
+	uaReports []biquerydomain.UAReportRow,
+	gameKPIs []biquerydomain.GameKPIRecord,
 ) biPanelView {
 	var totalImpressions int64
 	var totalClicks int64
@@ -617,6 +747,17 @@ func buildBIPageView(
 	var searchTermSpend float64
 	var searchTermConversions float64
 	var searchTermConversionsValue float64
+	var uaInstalls int64
+	var uaActivations int64
+	var uaRegistrations int64
+	var uaPurchasers int64
+	var uaTotalRevenue float64
+	var uaRetentionD1 float64
+	var uaRetentionD7 float64
+	var uaROAS float64
+	var uaCPI float64
+	var uaROI float64
+	var uaLTVD30 float64
 	for _, item := range insights {
 		totalImpressions += item.Impressions
 		totalClicks += item.Clicks
@@ -656,6 +797,19 @@ func buildBIPageView(
 			searchTermConversionsValue += value
 		}
 	}
+	for _, item := range uaReports {
+		uaInstalls += item.Installs
+		uaActivations += item.Activations
+		uaRegistrations += item.Registrations
+		uaPurchasers += item.Purchasers
+		uaTotalRevenue += parseMetricFloat(item.TotalRevenue)
+		uaRetentionD1 += parseMetricFloat(item.RetentionD1)
+		uaRetentionD7 += parseMetricFloat(item.RetentionD7)
+		uaROAS += parseMetricFloat(item.ROAS)
+		uaCPI += parseMetricFloat(item.CPI)
+		uaROI += parseMetricFloat(item.ROI)
+		uaLTVD30 += parseMetricFloat(item.LTVD30)
+	}
 
 	avgCostPerConversion := "0.00"
 	if totalConversions > 0 {
@@ -674,11 +828,21 @@ func buildBIPageView(
 		avgSearchTopImpressionShare = strconv.FormatFloat(totalSearchTopImpressionShare/divisor, 'f', 4, 64)
 		avgSearchAbsoluteTopImpressionShare = strconv.FormatFloat(totalSearchAbsoluteTopImpressionShare/divisor, 'f', 4, 64)
 	}
+	uaDataStatus := "广告侧可用，游戏内字段待接入"
+	if len(gameKPIs) > 0 {
+		uaDataStatus = "广告侧 + 游戏内 KPI 已合并"
+	}
+	availableFieldCount, integrationReadyFieldCount, plannedFieldCount := uaFieldStats()
 
 	page := biPanelView{
 		GeneratedAt:                         time.Now().UTC(),
 		Platform:                            filter.Platform,
 		AccountID:                           filter.AccountID,
+		Country:                             uaFilter.Country,
+		OS:                                  uaFilter.OS,
+		PlatformCampaignID:                  uaFilter.PlatformCampaignID,
+		PlatformAdGroupID:                   uaFilter.PlatformAdGroupID,
+		PlatformAdID:                        uaFilter.PlatformAdID,
 		EntityLevel:                         detailFilter.EntityLevel,
 		Device:                              detailFilter.Device,
 		Network:                             detailFilter.Network,
@@ -692,6 +856,11 @@ func buildBIPageView(
 		InsightDetailRowCount:               len(insightDetails),
 		CampaignDiagnosticRowCount:          len(campaignDiagnostics),
 		SearchTermRowCount:                  len(searchTerms),
+		UAReportRowCount:                    len(uaReports),
+		GameKPIRowCount:                     len(gameKPIs),
+		UAAvailableFieldCount:               availableFieldCount,
+		UAIntegrationReadyFieldCount:        integrationReadyFieldCount,
+		UAPlannedFieldCount:                 plannedFieldCount,
 		TotalImpressions:                    totalImpressions,
 		TotalClicks:                         totalClicks,
 		TotalSpend:                          strconv.FormatFloat(totalSpend, 'f', 2, 64),
@@ -707,9 +876,23 @@ func buildBIPageView(
 		SearchTermSpend:                     strconv.FormatFloat(searchTermSpend, 'f', 2, 64),
 		SearchTermConversions:               strconv.FormatFloat(searchTermConversions, 'f', 2, 64),
 		SearchTermConversionsValue:          strconv.FormatFloat(searchTermConversionsValue, 'f', 2, 64),
+		UAInstalls:                          uaInstalls,
+		UAActivations:                       uaActivations,
+		UARegistrations:                     uaRegistrations,
+		UAPurchasers:                        uaPurchasers,
+		UATotalRevenue:                      formatMetricFloat(uaTotalRevenue),
+		UAD1Retention:                       avgMetricString(uaRetentionD1, len(uaReports)),
+		UAD7Retention:                       avgMetricString(uaRetentionD7, len(uaReports)),
+		UAROAS:                              avgMetricString(uaROAS, len(uaReports)),
+		UACPI:                               avgMetricString(uaCPI, len(uaReports)),
+		UAROI:                               avgMetricString(uaROI, len(uaReports)),
+		UALTVD30:                            avgMetricString(uaLTVD30, len(uaReports)),
+		UADataStatus:                        uaDataStatus,
 		ImpressionsSVG:                      buildTrendBars(insights, "impressions"),
 		ClicksSVG:                           buildTrendBars(insights, "clicks"),
 		SpendSVG:                            buildTrendBars(insights, "spend"),
+		UAInstallsSVG:                       buildUATrendBars(uaReports, "installs"),
+		UARevenueSVG:                        buildUATrendBars(uaReports, "revenue"),
 		PlatformSummary:                     buildPlatformSummary(snapshots, insights),
 		AccountSummary:                      buildAccountSummary(snapshots, insights),
 		Snapshots:                           snapshots,
@@ -718,6 +901,8 @@ func buildBIPageView(
 		InsightDetails:                      insightDetails,
 		CampaignDiagnostics:                 campaignDiagnostics,
 		SearchTerms:                         searchTerms,
+		UAReports:                           uaReports,
+		GameKPIs:                            gameKPIs,
 	}
 	if !insightFilter.DateFrom.IsZero() {
 		page.DateFrom = insightFilter.DateFrom.Format("2006-01-02")
@@ -949,6 +1134,93 @@ func aggregateTrendPoints(insights []biquerydomain.InsightSummaryRow) []biTrendP
 	return points
 }
 
+func buildUATrendBars(rows []biquerydomain.UAReportRow, metric string) template.HTML {
+	type row struct {
+		installs int64
+		revenue  float64
+	}
+	grouped := make(map[string]*row, len(rows))
+	for _, item := range rows {
+		label := item.StatDate.Format("2006-01-02")
+		if _, ok := grouped[label]; !ok {
+			grouped[label] = &row{}
+		}
+		grouped[label].installs += item.Installs
+		grouped[label].revenue += parseMetricFloat(item.TotalRevenue)
+	}
+	if len(grouped) == 0 {
+		return template.HTML(`<div class="empty-chart">No data</div>`)
+	}
+	labels := make([]string, 0, len(grouped))
+	for label := range grouped {
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+	maxValue := 0.0
+	values := make([]float64, 0, len(labels))
+	for _, label := range labels {
+		value := float64(grouped[label].installs)
+		if metric == "revenue" {
+			value = grouped[label].revenue
+		}
+		values = append(values, value)
+		if value > maxValue {
+			maxValue = value
+		}
+	}
+	if maxValue <= 0 {
+		maxValue = 1
+	}
+	var builder strings.Builder
+	builder.WriteString(`<svg viewBox="0 0 320 96" preserveAspectRatio="none" class="trend-svg">`)
+	barWidth := 320.0 / float64(len(values))
+	for idx, value := range values {
+		height := (value / maxValue) * 72
+		x := float64(idx)*barWidth + 4
+		y := 84 - height
+		width := barWidth - 8
+		if width < 6 {
+			width = 6
+		}
+		builder.WriteString(fmt.Sprintf(`<rect x="%.2f" y="%.2f" width="%.2f" height="%.2f" rx="6" ry="6"></rect>`, x, y, width, height))
+	}
+	builder.WriteString(`</svg>`)
+	return template.HTML(builder.String())
+}
+
+func parseMetricFloat(raw string) float64 {
+	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil {
+		return 0
+	}
+	return value
+}
+
+func formatMetricFloat(value float64) string {
+	return strconv.FormatFloat(value, 'f', 2, 64)
+}
+
+func avgMetricString(total float64, count int) string {
+	if count == 0 {
+		return "0.00"
+	}
+	return formatMetricFloat(total / float64(count))
+}
+
+func uaFieldStats() (available, integrationReady, planned int) {
+	for _, item := range uaFieldCatalog() {
+		switch item.Status {
+		case "available":
+			available++
+		case "integration_ready":
+			integrationReady++
+		case "planned":
+			planned++
+		}
+	}
+	return available, integrationReady, planned
+}
+
 var dashboardTemplate = template.Must(template.New("dashboard").Parse(`<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -1178,7 +1450,7 @@ var biPanelTemplate = template.Must(template.New("bi-panel").Parse(`<!doctype ht
     <div class="hero">
       <div>
         <h1>be_ads BI Panel</h1>
-        <p>简单业务面板，直接看账户快照、Campaign 和 Insight 汇总。生成时间 {{ .GeneratedAt }}</p>
+        <p>面向海外游戏 UA 的业务看板。广告侧指标直接可看，游戏内漏斗/留存/LTV 按接入状态逐步补齐。生成时间 {{ .GeneratedAt }}</p>
       </div>
       <div class="nav">
         <a href="/bi">BI Panel</a>
@@ -1226,6 +1498,26 @@ var biPanelTemplate = template.Must(template.New("bi-panel").Parse(`<!doctype ht
         <input type="text" name="network" value="{{ .Network }}" placeholder="SEARCH">
       </div>
       <div class="field">
+        <label>Country</label>
+        <input type="text" name="country" value="{{ .Country }}" placeholder="US">
+      </div>
+      <div class="field">
+        <label>OS</label>
+        <input type="text" name="os" value="{{ .OS }}" placeholder="ios">
+      </div>
+      <div class="field">
+        <label>Campaign ID</label>
+        <input type="text" name="platform_campaign_id" value="{{ .PlatformCampaignID }}" placeholder="campaign id">
+      </div>
+      <div class="field">
+        <label>Ad Group ID</label>
+        <input type="text" name="platform_ad_group_id" value="{{ .PlatformAdGroupID }}" placeholder="ad group id">
+      </div>
+      <div class="field">
+        <label>Ad ID</label>
+        <input type="text" name="platform_ad_id" value="{{ .PlatformAdID }}" placeholder="ad id">
+      </div>
+      <div class="field">
         <label>Detail Limit</label>
         <input type="number" name="detail_limit" value="{{ .DetailLimit }}">
       </div>
@@ -1248,6 +1540,23 @@ var biPanelTemplate = template.Must(template.New("bi-panel").Parse(`<!doctype ht
     </form>
 
     <div class="metrics">
+      <div class="card"><div class="label">UA Status</div><div class="metric {{ if gt .GameKPIRowCount 0 }}good{{ else }}warn{{ end }}">{{ .UADataStatus }}</div></div>
+      <div class="card"><div class="label">UA Rows</div><div class="metric good">{{ .UAReportRowCount }}</div></div>
+      <div class="card"><div class="label">Game KPI Rows</div><div class="metric {{ if gt .GameKPIRowCount 0 }}good{{ else }}warn{{ end }}">{{ .GameKPIRowCount }}</div></div>
+      <div class="card"><div class="label">Available Fields</div><div class="metric good">{{ .UAAvailableFieldCount }}</div></div>
+      <div class="card"><div class="label">Ready To Integrate</div><div class="metric">{{ .UAIntegrationReadyFieldCount }}</div></div>
+      <div class="card"><div class="label">Planned Fields</div><div class="metric">{{ .UAPlannedFieldCount }}</div></div>
+      <div class="card"><div class="label">Spend</div><div class="metric good">{{ .TotalSpend }}</div></div>
+      <div class="card"><div class="label">Impressions / Clicks</div><div class="metric">{{ .TotalImpressions }} / {{ .TotalClicks }}</div></div>
+      <div class="card"><div class="label">Installs</div><div class="metric {{ if gt .UAInstalls 0 }}good{{ else }}warn{{ end }}">{{ .UAInstalls }}</div></div>
+      <div class="card"><div class="label">Activations</div><div class="metric {{ if gt .UAActivations 0 }}good{{ else }}warn{{ end }}">{{ .UAActivations }}</div></div>
+      <div class="card"><div class="label">Registrations</div><div class="metric {{ if gt .UARegistrations 0 }}good{{ else }}warn{{ end }}">{{ .UARegistrations }}</div></div>
+      <div class="card"><div class="label">Purchasers</div><div class="metric {{ if gt .UAPurchasers 0 }}good{{ else }}warn{{ end }}">{{ .UAPurchasers }}</div></div>
+      <div class="card"><div class="label">CPI</div><div class="metric {{ if gt .GameKPIRowCount 0 }}good{{ else }}warn{{ end }}">{{ .UACPI }}</div></div>
+      <div class="card"><div class="label">D1 / D7 Retention</div><div class="metric {{ if gt .GameKPIRowCount 0 }}good{{ else }}warn{{ end }}">{{ .UAD1Retention }} / {{ .UAD7Retention }}</div></div>
+      <div class="card"><div class="label">ROAS / ROI</div><div class="metric {{ if gt .GameKPIRowCount 0 }}good{{ else }}warn{{ end }}">{{ .UAROAS }} / {{ .UAROI }}</div></div>
+      <div class="card"><div class="label">Revenue</div><div class="metric {{ if gt .GameKPIRowCount 0 }}good{{ else }}warn{{ end }}">{{ .UATotalRevenue }}</div></div>
+      <div class="card"><div class="label">LTV D30</div><div class="metric {{ if gt .GameKPIRowCount 0 }}good{{ else }}warn{{ end }}">{{ .UALTVD30 }}</div></div>
       <div class="card"><div class="label">Snapshots</div><div class="metric good">{{ .SnapshotCount }}</div></div>
       <div class="card"><div class="label">Campaigns</div><div class="metric good">{{ .CampaignCount }}</div></div>
       <div class="card"><div class="label">Insight Rows</div><div class="metric">{{ .InsightRowCount }}</div></div>
@@ -1290,9 +1599,92 @@ var biPanelTemplate = template.Must(template.New("bi-panel").Parse(`<!doctype ht
         </div>
         {{ .SpendSVG }}
       </div>
+      <div class="card">
+        <div class="chart-head">
+          <h2>Install Trend</h2>
+          <span class="muted">游戏内接入后生效</span>
+        </div>
+        {{ .UAInstallsSVG }}
+      </div>
+      <div class="card">
+        <div class="chart-head">
+          <h2>Revenue Trend</h2>
+          <span class="muted">Total Revenue</span>
+        </div>
+        {{ .UARevenueSVG }}
+      </div>
     </div>
 
     <div class="panels">
+      <div class="card">
+        <div class="panel-head">
+          <h2>UA Overview</h2>
+          <span>{{ .UAReportRowCount }} row(s)</span>
+        </div>
+        <table>
+          <thead><tr><th>Date</th><th>Platform</th><th>Account</th><th>Campaign</th><th>Ad Group</th><th>Ad</th><th>Country</th><th>OS</th><th>Spend</th><th>Impr</th><th>Clicks</th><th>CTR</th><th>Installs</th><th>CPI</th><th>D7</th><th>Revenue</th><th>ROAS</th><th>ROI</th></tr></thead>
+          <tbody>
+            {{ range .UAReports }}
+            <tr>
+              <td>{{ .StatDate.Format "2006-01-02" }}</td>
+              <td>{{ .Platform }}</td>
+              <td>{{ .PlatformAccountID }}</td>
+              <td>{{ if .PlatformCampaignID }}{{ .PlatformCampaignID }}{{ else }}-{{ end }}</td>
+              <td>{{ if .PlatformAdGroupID }}{{ .PlatformAdGroupID }}{{ else }}-{{ end }}</td>
+              <td>{{ if .PlatformAdID }}{{ .PlatformAdID }}{{ else }}-{{ end }}</td>
+              <td>{{ if .Country }}{{ .Country }}{{ else }}<span class="muted">待接</span>{{ end }}</td>
+              <td>{{ if .OS }}{{ .OS }}{{ else }}<span class="muted">待接</span>{{ end }}</td>
+              <td>{{ .Spend }}</td>
+              <td>{{ .Impressions }}</td>
+              <td>{{ .Clicks }}</td>
+              <td>{{ .CTR }}</td>
+              <td>{{ if gt .Installs 0 }}{{ .Installs }}{{ else }}<span class="muted">待接</span>{{ end }}</td>
+              <td>{{ if ne .CPI "0.00" }}{{ .CPI }}{{ else }}<span class="muted">待接</span>{{ end }}</td>
+              <td>{{ if ne .RetentionD7 "0.00" }}{{ .RetentionD7 }}{{ else }}<span class="muted">待接</span>{{ end }}</td>
+              <td>{{ if ne .TotalRevenue "0.00" }}{{ .TotalRevenue }}{{ else }}<span class="muted">待接</span>{{ end }}</td>
+              <td>{{ .ROAS }}</td>
+              <td>{{ if ne .ROI "0.00" }}{{ .ROI }}{{ else }}<span class="muted">待接</span>{{ end }}</td>
+            </tr>
+            {{ else }}
+            <tr><td colspan="18" class="muted">No UA data</td></tr>
+            {{ end }}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="panel-head">
+          <h2>Game KPI Integration</h2>
+          <span>{{ .GameKPIRowCount }} row(s)</span>
+        </div>
+        <table>
+          <thead><tr><th>Date</th><th>Platform</th><th>Campaign</th><th>Ad Group</th><th>Ad</th><th>Country</th><th>OS</th><th>Installs</th><th>Activations</th><th>Registrations</th><th>Purchasers</th><th>D1</th><th>D7</th><th>LTV D30</th><th>Revenue D30</th></tr></thead>
+          <tbody>
+            {{ range .GameKPIs }}
+            <tr>
+              <td>{{ .StatDate.Format "2006-01-02" }}</td>
+              <td>{{ .Platform }}</td>
+              <td>{{ if .PlatformCampaignID }}{{ .PlatformCampaignID }}{{ else }}-{{ end }}</td>
+              <td>{{ if .PlatformAdGroupID }}{{ .PlatformAdGroupID }}{{ else }}-{{ end }}</td>
+              <td>{{ if .PlatformAdID }}{{ .PlatformAdID }}{{ else }}-{{ end }}</td>
+              <td>{{ if .Country }}{{ .Country }}{{ else }}-{{ end }}</td>
+              <td>{{ if .OS }}{{ .OS }}{{ else }}-{{ end }}</td>
+              <td>{{ .Installs }}</td>
+              <td>{{ .Activations }}</td>
+              <td>{{ .Registrations }}</td>
+              <td>{{ .Purchasers }}</td>
+              <td>{{ .RetentionD1 }}</td>
+              <td>{{ .RetentionD7 }}</td>
+              <td>{{ .LTVD30 }}</td>
+              <td>{{ .RevenueD30 }}</td>
+            </tr>
+            {{ else }}
+            <tr><td colspan="15" class="muted">No game KPI data. 可通过 POST /api/bi/game-kpis 接入。</td></tr>
+            {{ end }}
+          </tbody>
+        </table>
+      </div>
+
       <div class="card">
         <div class="panel-head">
           <h2>Platform Summary</h2>
@@ -1530,6 +1922,152 @@ var biPanelTemplate = template.Must(template.New("bi-panel").Parse(`<!doctype ht
   </script>
 </body>
 </html>`))
+
+func parseUAReportFilter(r *http.Request) (biquerydomain.UAReportFilter, error) {
+	filter := biquerydomain.UAReportFilter{
+		Platform:           strings.TrimSpace(r.URL.Query().Get("platform")),
+		AccountID:          strings.TrimSpace(r.URL.Query().Get("platform_account_id")),
+		EntityLevel:        strings.TrimSpace(r.URL.Query().Get("entity_level")),
+		Device:             strings.TrimSpace(r.URL.Query().Get("device")),
+		Network:            strings.TrimSpace(r.URL.Query().Get("network")),
+		Country:            strings.TrimSpace(r.URL.Query().Get("country")),
+		OS:                 strings.TrimSpace(r.URL.Query().Get("os")),
+		PlatformCampaignID: strings.TrimSpace(r.URL.Query().Get("platform_campaign_id")),
+		PlatformAdGroupID:  strings.TrimSpace(r.URL.Query().Get("platform_ad_group_id")),
+		PlatformAdID:       strings.TrimSpace(r.URL.Query().Get("platform_ad_id")),
+	}
+	if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
+		limit, err := strconv.Atoi(rawLimit)
+		if err != nil || limit <= 0 {
+			return biquerydomain.UAReportFilter{}, fmt.Errorf("invalid limit")
+		}
+		filter.Limit = limit
+	}
+	if dateFrom := strings.TrimSpace(r.URL.Query().Get("date_from")); dateFrom != "" {
+		parsed, err := time.Parse("2006-01-02", dateFrom)
+		if err != nil {
+			return biquerydomain.UAReportFilter{}, fmt.Errorf("invalid date_from")
+		}
+		filter.DateFrom = parsed
+	}
+	if dateTo := strings.TrimSpace(r.URL.Query().Get("date_to")); dateTo != "" {
+		parsed, err := time.Parse("2006-01-02", dateTo)
+		if err != nil {
+			return biquerydomain.UAReportFilter{}, fmt.Errorf("invalid date_to")
+		}
+		filter.DateTo = parsed
+	}
+	return filter, nil
+}
+
+func parseGameKPIQueryFilter(r *http.Request) (biquerydomain.GameKPIQueryFilter, error) {
+	filter := biquerydomain.GameKPIQueryFilter{
+		Platform:           strings.TrimSpace(r.URL.Query().Get("platform")),
+		AccountID:          strings.TrimSpace(r.URL.Query().Get("platform_account_id")),
+		Country:            strings.TrimSpace(r.URL.Query().Get("country")),
+		OS:                 strings.TrimSpace(r.URL.Query().Get("os")),
+		PlatformCampaignID: strings.TrimSpace(r.URL.Query().Get("platform_campaign_id")),
+		PlatformAdGroupID:  strings.TrimSpace(r.URL.Query().Get("platform_ad_group_id")),
+		PlatformAdID:       strings.TrimSpace(r.URL.Query().Get("platform_ad_id")),
+	}
+	if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
+		limit, err := strconv.Atoi(rawLimit)
+		if err != nil || limit <= 0 {
+			return biquerydomain.GameKPIQueryFilter{}, fmt.Errorf("invalid limit")
+		}
+		filter.Limit = limit
+	}
+	if dateFrom := strings.TrimSpace(r.URL.Query().Get("date_from")); dateFrom != "" {
+		parsed, err := time.Parse("2006-01-02", dateFrom)
+		if err != nil {
+			return biquerydomain.GameKPIQueryFilter{}, fmt.Errorf("invalid date_from")
+		}
+		filter.DateFrom = parsed
+	}
+	if dateTo := strings.TrimSpace(r.URL.Query().Get("date_to")); dateTo != "" {
+		parsed, err := time.Parse("2006-01-02", dateTo)
+		if err != nil {
+			return biquerydomain.GameKPIQueryFilter{}, fmt.Errorf("invalid date_to")
+		}
+		filter.DateTo = parsed
+	}
+	return filter, nil
+}
+
+func uaFieldCatalog() []biquerydomain.UAFieldDefinition {
+	return []biquerydomain.UAFieldDefinition{
+		{Key: "platform", Label: "渠道/平台", Category: "dimension", Status: "available", Source: "ads connector", RelatedKeys: []string{"platform_account_id", "platform_campaign_id", "platform_ad_group_id", "platform_ad_id"}},
+		{Key: "platform_account_id", Label: "账户 ID", Category: "dimension", Status: "available", Source: "ads connector"},
+		{Key: "platform_campaign_id", Label: "Campaign ID", Category: "dimension", Status: "available", Source: "ads connector"},
+		{Key: "platform_ad_group_id", Label: "Ad Group ID", Category: "dimension", Status: "available", Source: "ads connector"},
+		{Key: "platform_ad_id", Label: "Ad ID", Category: "dimension", Status: "available", Source: "ads connector"},
+		{Key: "stat_date", Label: "日期", Category: "dimension", Status: "available", Source: "ads connector"},
+		{Key: "hour_of_day", Label: "小时/时段", Category: "dimension", Status: "planned", Source: "ads connector", Notes: "需补 segments.hour 或平台等价字段"},
+		{Key: "device", Label: "广告设备", Category: "dimension", Status: "available", Source: "ads connector", Notes: "如 MOBILE/TABLET/DESKTOP"},
+		{Key: "network", Label: "广告网络/版位", Category: "dimension", Status: "available", Source: "ads connector"},
+		{Key: "age_range", Label: "年龄段", Category: "dimension", Status: "planned", Source: "ads connector"},
+		{Key: "gender", Label: "性别", Category: "dimension", Status: "planned", Source: "ads connector"},
+		{Key: "interest_tags", Label: "兴趣/行为标签", Category: "dimension", Status: "planned", Source: "ads connector"},
+		{Key: "audience_type", Label: "受众类型", Category: "dimension", Status: "planned", Source: "ads connector", Notes: "自定义/相似/DMP 等"},
+		{Key: "country", Label: "国家/地区", Category: "dimension", Status: "integration_ready", Source: "game kpi api", ExampleAPI: "/api/bi/game-kpis"},
+		{Key: "os", Label: "操作系统", Category: "dimension", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "placement", Label: "版位", Category: "dimension", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "creative_id", Label: "素材 ID", Category: "dimension", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "creative_type", Label: "素材类型", Category: "dimension", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "optimization_goal", Label: "优化目标", Category: "dimension", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "bid_type", Label: "出价方式", Category: "dimension", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "targeting", Label: "定向标签", Category: "dimension", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "video_hook_rate_2s", Label: "2 秒钩子率", Category: "traffic", Status: "planned", Source: "ads connector"},
+		{Key: "video_view_rate_3s", Label: "3 秒播放率", Category: "traffic", Status: "planned", Source: "ads connector"},
+		{Key: "video_completion_rate_6s", Label: "6 秒完播率", Category: "traffic", Status: "planned", Source: "ads connector"},
+		{Key: "video_avg_watch_time", Label: "平均播放时长", Category: "traffic", Status: "planned", Source: "ads connector"},
+		{Key: "silent_completion_rate", Label: "静音完播率", Category: "traffic", Status: "planned", Source: "ads connector"},
+		{Key: "impressions", Label: "展现量", Category: "traffic", Status: "available", Source: "ads connector"},
+		{Key: "clicks", Label: "点击量", Category: "traffic", Status: "available", Source: "ads connector"},
+		{Key: "ctr", Label: "点击率", Category: "traffic", Status: "available", Source: "derived"},
+		{Key: "cpm", Label: "CPM", Category: "cost", Status: "available", Source: "derived"},
+		{Key: "cpc", Label: "CPC", Category: "cost", Status: "available", Source: "derived"},
+		{Key: "spend", Label: "花费", Category: "cost", Status: "available", Source: "ads connector"},
+		{Key: "reach", Label: "覆盖人数", Category: "traffic", Status: "available", Source: "ads connector"},
+		{Key: "frequency", Label: "频次", Category: "traffic", Status: "available", Source: "derived"},
+		{Key: "conversions", Label: "平台转化", Category: "conversion", Status: "available", Source: "ads connector", Notes: "语义取决于投放优化目标"},
+		{Key: "all_conversions", Label: "全量转化", Category: "conversion", Status: "available", Source: "ads connector"},
+		{Key: "conversions_value", Label: "平台转化价值", Category: "revenue", Status: "available", Source: "ads connector"},
+		{Key: "cost_per_conversion", Label: "CPA", Category: "cost", Status: "available", Source: "derived"},
+		{Key: "roas", Label: "ROAS", Category: "revenue", Status: "available", Source: "derived"},
+		{Key: "installs", Label: "安装量", Category: "funnel", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "cpi", Label: "CPI", Category: "cost", Status: "integration_ready", Source: "derived"},
+		{Key: "activations", Label: "激活量", Category: "funnel", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "activation_rate", Label: "激活率", Category: "funnel", Status: "integration_ready", Source: "derived"},
+		{Key: "registrations", Label: "注册量", Category: "funnel", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "cpr", Label: "CPR", Category: "cost", Status: "integration_ready", Source: "derived"},
+		{Key: "tutorial_completions", Label: "完成新手教程", Category: "behavior", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "role_creations", Label: "创建角色", Category: "behavior", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "level_x_users", Label: "达到指定等级", Category: "behavior", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "purchasers", Label: "付费人数", Category: "revenue", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "payer_rate", Label: "付费率", Category: "revenue", Status: "integration_ready", Source: "derived"},
+		{Key: "revenue_d1", Label: "D1 收入", Category: "revenue", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "revenue_d7", Label: "D7 收入", Category: "revenue", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "revenue_d30", Label: "D30 收入", Category: "revenue", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "ad_revenue", Label: "广告收入", Category: "revenue", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "total_revenue", Label: "总收入", Category: "revenue", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "arpu", Label: "ARPU", Category: "revenue", Status: "integration_ready", Source: "derived"},
+		{Key: "arppu", Label: "ARPPU", Category: "revenue", Status: "integration_ready", Source: "derived"},
+		{Key: "roi", Label: "ROI", Category: "revenue", Status: "integration_ready", Source: "derived"},
+		{Key: "retention_d1", Label: "D1 留存", Category: "retention", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "retention_d3", Label: "D3 留存", Category: "retention", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "retention_d7", Label: "D7 留存", Category: "retention", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "retention_d30", Label: "D30 留存", Category: "retention", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "ltv_d7", Label: "D7 LTV", Category: "lifecycle", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "ltv_d30", Label: "D30 LTV", Category: "lifecycle", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "ltv_to_cpi_ratio", Label: "LTV/CPI", Category: "lifecycle", Status: "integration_ready", Source: "derived"},
+		{Key: "avg_online_duration_seconds", Label: "在线时长", Category: "behavior", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "task_completion_rate", Label: "任务完成率", Category: "behavior", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "high_value_payer_ratio", Label: "高价值付费占比", Category: "revenue", Status: "integration_ready", Source: "game kpi api"},
+		{Key: "landing_bounce_rate", Label: "落地页跳出率", Category: "behavior", Status: "planned", Source: "ads connector"},
+		{Key: "fraud_install_ratio", Label: "作弊/异常安装占比", Category: "quality", Status: "planned", Source: "external anti-fraud api"},
+	}
+}
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")

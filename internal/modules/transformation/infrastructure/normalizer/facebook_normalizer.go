@@ -116,20 +116,21 @@ func (n *FacebookNormalizer) Normalize(_ context.Context, records []ads.RawRecor
 				return nil, err
 			}
 			result.Insights = append(result.Insights, ads.StandardInsight{
-				Platform:          record.Platform,
-				PlatformAccountID: record.PlatformAccountID,
-				EntityLevel:       ads.ObjectTypeCampaign,
-				EntityID:          payload.CampaignID,
-				StatDate:          parseDate(payload.DateStart),
-				Impressions:       parseInt64(payload.Impressions),
-				Clicks:            parseInt64(payload.Clicks),
-				Spend:             payload.Spend,
-				CTR:               payload.CTR,
-				CPC:               payload.CPC,
-				CPM:               payload.CPM,
-				Conversions:       payload.Conversions,
-				Reach:             parseInt64(payload.Reach),
-				RawPayload:        record.Payload,
+				Platform:           record.Platform,
+				PlatformAccountID:  record.PlatformAccountID,
+				PlatformCampaignID: payload.CampaignID,
+				EntityLevel:        ads.ObjectTypeCampaign,
+				EntityID:           payload.CampaignID,
+				StatDate:           parseDate(payload.DateStart),
+				Impressions:        parseInt64(payload.Impressions),
+				Clicks:             parseInt64(payload.Clicks),
+				Spend:              payload.Spend,
+				CTR:                payload.CTR,
+				CPC:                payload.CPC,
+				CPM:                payload.CPM,
+				Conversions:        payload.Conversions,
+				Reach:              parseInt64(payload.Reach),
+				RawPayload:         record.Payload,
 			})
 		}
 	}

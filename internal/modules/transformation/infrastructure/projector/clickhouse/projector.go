@@ -24,6 +24,7 @@ func (p *Projector) Migrate(ctx context.Context) error {
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.olap_insights (
 			platform String,
 			platform_account_id String,
+			platform_campaign_id String,
 			entity_level String,
 			entity_id String,
 			platform_ad_group_id String,
@@ -46,7 +47,7 @@ func (p *Projector) Migrate(ctx context.Context) error {
 			raw_payload String,
 			ingested_at DateTime
 		) ENGINE = ReplacingMergeTree(ingested_at)
-		ORDER BY (platform, platform_account_id, stat_date, entity_level, entity_id, device, network)`, p.database),
+		ORDER BY (platform, platform_account_id, stat_date, platform_campaign_id, entity_level, entity_id, device, network)`, p.database),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.olap_campaign_diagnostics (
 			platform String,
 			platform_account_id String,
@@ -76,6 +77,7 @@ func (p *Projector) Migrate(ctx context.Context) error {
 			ingested_at DateTime
 		) ENGINE = ReplacingMergeTree(ingested_at)
 		ORDER BY (platform, platform_account_id, stat_date, platform_campaign_id, platform_ad_group_id, search_term)`, p.database),
+		fmt.Sprintf("ALTER TABLE %s.olap_insights ADD COLUMN IF NOT EXISTS platform_campaign_id String", p.database),
 		fmt.Sprintf("ALTER TABLE %s.olap_insights ADD COLUMN IF NOT EXISTS platform_ad_group_id String", p.database),
 		fmt.Sprintf("ALTER TABLE %s.olap_insights ADD COLUMN IF NOT EXISTS platform_ad_id String", p.database),
 		fmt.Sprintf("ALTER TABLE %s.olap_insights ADD COLUMN IF NOT EXISTS device String", p.database),
@@ -100,13 +102,14 @@ func (p *Projector) Project(ctx context.Context, batch *transformationdomain.Nor
 	for _, item := range batch.Payload.Insights {
 		_, err := p.db.ExecContext(ctx, `
 			INSERT INTO `+p.database+`.olap_insights (
-				platform, platform_account_id, entity_level, entity_id, platform_ad_group_id, platform_ad_id, stat_date, device, network,
+				platform, platform_account_id, platform_campaign_id, entity_level, entity_id, platform_ad_group_id, platform_ad_id, stat_date, device, network,
 				impressions, clicks, spend, ctr, cpc, cpm, conversions, all_conversions, conversions_value,
 				cost_per_conversion, cost_per_all_conversions, reach, raw_payload, ingested_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
 			item.Platform,
 			item.PlatformAccountID,
+			item.PlatformCampaignID,
 			item.EntityLevel,
 			item.EntityID,
 			item.PlatformAdGroupID,

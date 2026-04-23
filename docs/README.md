@@ -12,6 +12,8 @@
   只看技术选型决策和为什么这样选
 - [Distributed Raw Transform BI Architecture](/Users/zhongyi.zhang/project/go/be_ads_project/docs/architecture/distributed-raw-transform-bi-architecture.md)
   只看服务边界、数据流和扩容模型
+- [Raw Trans BI Field Lineage](/Users/zhongyi.zhang/project/go/be_ads_project/docs/architecture/raw-trans-bi-field-lineage.md)
+  只看 raw/trans/bi 当前实际字段、来源和取数逻辑
 - [Implementation Roadmap](/Users/zhongyi.zhang/project/go/be_ads_project/docs/roadmap/implementation-roadmap.md)
   只看当前状态、里程碑和后续顺序
 - [Google Ads Test To Real Runbook](/Users/zhongyi.zhang/project/go/be_ads_project/docs/runbooks/google-ads-test-to-real-runbook.md)
