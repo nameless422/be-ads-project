@@ -1,6 +1,8 @@
-logs/
-run/
-.idea/
+be/logs/
+be/run/
+be/tmp/
+fe/node_modules/
+fe/dist/
 .DS_Store
 .env
 .env.local
