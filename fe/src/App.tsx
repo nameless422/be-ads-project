@@ -7,7 +7,7 @@ import { ControlPage } from "./pages/ControlPage";
 import { CreativesPage } from "./pages/CreativesPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { QualityPage } from "./pages/QualityPage";
-import { filtersToSearch, pathForPage, readFiltersFromSearch, readPageFromPath } from "./utils/routing";
+import { filtersToSearch, normalizeFiltersForPage, pathForPage, readFiltersFromSearch, readPageFromPath } from "./utils/routing";
 
 type LocationState = {
   page: PageKey;
@@ -15,9 +15,10 @@ type LocationState = {
 };
 
 function readLocation(): LocationState {
+  const page = readPageFromPath(window.location.pathname);
   return {
-    page: readPageFromPath(window.location.pathname),
-    filters: readFiltersFromSearch(window.location.search),
+    page,
+    filters: normalizeFiltersForPage(page, readFiltersFromSearch(window.location.search)),
   };
 }
 

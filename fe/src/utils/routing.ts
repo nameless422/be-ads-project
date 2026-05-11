@@ -1,7 +1,7 @@
 import type { FilterState, PageKey } from "../api/types";
 
 export const pageMeta: Record<PageKey, { title: string; description: string }> = {
-  overview: { title: "Overview", description: "大盘、趋势、账户和 UA 漏斗一屏巡检。" },
+  overview: { title: "Overview", description: "UA 核心指标、按天趋势和维度汇总。" },
   breakdown: { title: "Breakdown", description: "按实体、campaign、搜索词和诊断指标定位问题。" },
   creatives: { title: "Creatives", description: "围绕素材、版位、目标和投放质量做优化判断。" },
   quality: { title: "Quality", description: "查看留存、付费、LTV、行为和异常质量信号。" },
@@ -66,6 +66,22 @@ export function readFiltersFromSearch(search: string): FilterState {
   return filters;
 }
 
+export function normalizeFiltersForPage(page: PageKey, filters: FilterState): FilterState {
+  if (page !== "overview") {
+    return filters;
+  }
+  return {
+    ...filters,
+    accountId: "",
+    entityLevel: "",
+    network: "",
+    detailLimit: defaultFilters.detailLimit,
+    matchType: "",
+    searchTerm: "",
+    searchTermLimit: defaultFilters.searchTermLimit,
+  };
+}
+
 export function filtersToSearch(filters: FilterState): string {
   const params = new URLSearchParams();
   for (const [field, queryKey] of queryKeys) {
@@ -78,7 +94,7 @@ export function filtersToSearch(filters: FilterState): string {
 }
 
 export function pathForPage(page: PageKey, filters: FilterState) {
-  const search = filtersToSearch(filters);
+  const search = filtersToSearch(normalizeFiltersForPage(page, filters));
   const path = `/bi/${page}`;
   return search ? `${path}?${search}` : path;
 }

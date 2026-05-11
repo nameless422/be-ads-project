@@ -64,7 +64,7 @@ export function AppShell({ page, filters, loading, error, generatedAt, children,
           </div>
         </section>
 
-        <Filters filters={filters} onApply={onApplyFilters} />
+        <Filters page={page} filters={filters} onApply={onApplyFilters} />
         {error ? <div className="error-banner">{error}</div> : null}
         {children}
       </main>
