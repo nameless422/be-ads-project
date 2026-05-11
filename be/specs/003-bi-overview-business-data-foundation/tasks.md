@@ -1,0 +1,23 @@
+# Tasks
+
+- [ ] Confirm the product source of truth and document the chosen field name.
+- [ ] Confirm whether user-facing platform means OS, device, client platform, or another business dimension.
+- [ ] Confirm purchase, CPA, CVR, D0 LTV, D0 ROAS, and D7 ROAS formulas.
+- [ ] Decide whether Phase 2 extends `/api/bi/ua-report` or adds a dedicated Overview endpoint.
+- [ ] Define request filters for product, media_source, region/country, device/platform, campaign, ad_group, and ad.
+- [ ] Define response fields for KPI cards, daily trend, and summary table.
+- [ ] Add or update backend read models for confirmed dimensions and metric numerators/denominators.
+- [ ] Add idempotent MySQL migrations for confirmed game-side/product fields.
+- [ ] Add idempotent ClickHouse migrations for confirmed ad-side dimensions or OLAP metrics.
+- [ ] Update collector or external ingest path for product and D0/D7 revenue inputs, if the source requires it.
+- [ ] Update normalizers to populate the confirmed standard fields.
+- [ ] Update projectors to persist the confirmed fields.
+- [ ] Update reporting repository queries to filter and group by the confirmed dimensions.
+- [ ] Update `UAReportService` or add a new Overview reporting service to derive metrics from aggregate inputs.
+- [ ] Update frontend API types and client calls for the Phase 2 contract.
+- [ ] Update Overview metric helpers to consume real product/D0/D7 fields.
+- [ ] Add backend tests for filter parsing, aggregation, and missing-field behavior.
+- [ ] Add frontend build verification.
+- [ ] Run `go test ./...` from `be/`.
+- [ ] Run `npm run build` from `fe/`.
+- [ ] Run a local `/api/bi/*` smoke check and open `/bi/overview`.

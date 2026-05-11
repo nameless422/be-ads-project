@@ -231,6 +231,36 @@ button.secondary:hover:not(:disabled) {
   box-shadow: var(--shadow);
 }
 
+.overview-filters {
+  grid-template-columns: 1.1fr 3fr auto;
+}
+
+.filter-group {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(112px, 1fr));
+  grid-column: span 8;
+  gap: 10px;
+  min-width: 0;
+}
+
+.overview-filters .filter-group {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-column: auto;
+}
+
+.overview-filters .business-filter-group {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.filter-group-title {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 820;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
 .filters label {
   display: flex;
   min-width: 0;
@@ -267,6 +297,10 @@ th {
   gap: 7px;
 }
 
+.overview-filters .filter-actions {
+  min-width: 170px;
+}
+
 .error-banner {
   margin-bottom: 16px;
   border: 1px solid #f0c5ba;
@@ -285,6 +319,10 @@ th {
 }
 
 .kpi-grid.compact {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.business-kpi-grid {
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
@@ -369,15 +407,65 @@ th {
   height: 112px;
 }
 
-.trend-chart.green rect {
+.metric-toggle-row,
+.summary-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.metric-toggle {
+  min-height: 32px;
+  border-color: var(--line);
+  color: var(--muted);
+  background: var(--surface);
+}
+
+.metric-toggle:hover:not(:disabled),
+.metric-toggle.active {
+  color: var(--green);
+  border-color: #b8d9d0;
+  background: var(--green-soft);
+}
+
+.metric-toggle.unavailable {
+  color: var(--muted-2);
+  background: var(--surface-2);
+}
+
+.trend-chart .trend-axis {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.trend-chart .trend-line {
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.trend-chart .trend-point {
+  stroke: #fff;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.trend-chart.green .trend-line,
+.trend-chart.green .trend-point {
+  stroke: var(--green);
   fill: var(--green);
 }
 
-.trend-chart.blue rect {
+.trend-chart.blue .trend-line,
+.trend-chart.blue .trend-point {
+  stroke: var(--blue);
   fill: var(--blue);
 }
 
-.trend-chart.amber rect {
+.trend-chart.amber .trend-line,
+.trend-chart.amber .trend-point {
+  stroke: var(--amber);
   fill: var(--amber);
 }
 
@@ -396,6 +484,42 @@ th {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.summary-controls {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.5fr);
+  gap: 14px;
+}
+
+.summary-control-group {
+  min-width: 0;
+}
+
+.summary-control-title {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.chip-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 9px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chip-control input {
+  margin: 0;
 }
 
 .table-wrap {
@@ -496,13 +620,35 @@ tbody tr:last-child td {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
+  .filter-group {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .overview-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-filters .filter-group,
+  .overview-filters .business-filter-group {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .overview-filters .filter-actions {
+    min-width: 0;
+  }
+
   .kpi-grid,
   .kpi-grid.compact,
+  .business-kpi-grid,
   .chart-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .two-column {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-controls {
     grid-template-columns: 1fr;
   }
 }
@@ -529,8 +675,18 @@ tbody tr:last-child td {
   .filters,
   .kpi-grid,
   .kpi-grid.compact,
+  .business-kpi-grid,
   .chart-grid,
   .action-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .filter-group {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-filters .filter-group,
+  .overview-filters .business-filter-group {
     grid-template-columns: 1fr;
   }
 

@@ -11,10 +11,21 @@ type TrendChartProps = {
 };
 
 export function TrendChart({ title, caption, points, tone = "green" }: TrendChartProps) {
-  const max = Math.max(1, ...points.map((point) => point.value));
+  const values = points.map((point) => point.value);
+  const max = Math.max(1, ...values);
+  const min = Math.min(0, ...values);
+  const span = Math.max(1, max - min);
   const width = 360;
   const height = 112;
-  const barWidth = points.length > 0 ? width / points.length : width;
+  const plotTop = 12;
+  const plotBottom = height - 22;
+  const plotHeight = plotBottom - plotTop;
+  const coordinates = points.map((point, index) => {
+    const x = points.length === 1 ? width / 2 : 12 + (index * (width - 24)) / (points.length - 1);
+    const y = plotBottom - ((point.value - min) / span) * plotHeight;
+    return { ...point, x, y };
+  });
+  const path = coordinates.map((point) => `${point.x},${point.y}`).join(" ");
 
   return (
     <section className="panel chart-panel">
@@ -24,13 +35,11 @@ export function TrendChart({ title, caption, points, tone = "green" }: TrendChar
       </div>
       {points.length > 0 ? (
         <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className={`trend-chart ${tone}`} aria-label={title}>
-          {points.map((point, index) => {
-            const barHeight = Math.max(4, (point.value / max) * 82);
-            const x = index * barWidth + 5;
-            const y = height - barHeight - 18;
-            const w = Math.max(5, barWidth - 10);
-            return <rect key={`${point.label}-${index}`} x={x} y={y} width={w} height={barHeight} rx="5" />;
-          })}
+          <line className="trend-axis" x1="8" x2={width - 8} y1={plotBottom} y2={plotBottom} />
+          <polyline className="trend-line" points={path} fill="none" />
+          {coordinates.map((point, index) => (
+            <circle key={`${point.label}-${index}`} className="trend-point" cx={point.x} cy={point.y} r="3.5" />
+          ))}
         </svg>
       ) : (
         <div className="empty-chart">No trend data</div>
