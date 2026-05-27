@@ -7,6 +7,8 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -78,7 +80,8 @@ func NewServer(snapshotRepo SnapshotReader, insightRepo InsightReader, uaReport 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", s.handleHealth)
-	mux.HandleFunc("/bi", s.handleBIPanel)
+	mux.HandleFunc("/bi", s.handleBIApp)
+	mux.HandleFunc("/bi/", s.handleBIApp)
 	mux.HandleFunc("/api/bi/snapshots", s.handleSnapshots)
 	mux.HandleFunc("/api/bi/campaigns", s.handleCampaigns)
 	mux.HandleFunc("/api/bi/insights/summary", s.handleInsightSummary)
@@ -96,6 +99,33 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/control/backfill", s.handleBackfill)
 	mux.HandleFunc("/", s.handleDashboard)
 	return mux
+}
+
+const biFrontendDistDir = "../fe/dist"
+
+func (s *Server) handleBIApp(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	if strings.HasPrefix(r.URL.Path, "/bi/assets/") {
+		rel := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/bi/"))
+		if rel == "." || strings.HasPrefix(rel, "..") {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, filepath.Join(biFrontendDistDir, rel))
+		return
+	}
+
+	indexPath := filepath.Join(biFrontendDistDir, "index.html")
+	if _, err := os.Stat(indexPath); err != nil {
+		http.Error(w, "BI frontend is not built; run `make frontend-build` from the repository root.", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeFile(w, r, indexPath)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

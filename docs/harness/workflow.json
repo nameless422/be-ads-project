@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "stages": [
+    {
+      "id": "pm-route",
+      "role": "PM",
+      "input": ["user request", "task-board", "dev-map"],
+      "output": ["task id", "current stage", "next role"],
+      "next": ["requirements"]
+    },
+    {
+      "id": "requirements",
+      "role": "Requirements Analysis",
+      "input": ["user request", "task history", "related docs"],
+      "output": ["SPEC or structured requirements"],
+      "next": ["design", "pm-route"]
+    },
+    {
+      "id": "design",
+      "role": "Solution Design",
+      "input": ["SPEC", "dev-map", "existing code"],
+      "output": ["technical design", "impact list", "validation plan"],
+      "next": ["gate", "requirements"]
+    },
+    {
+      "id": "gate",
+      "role": "Gate Control",
+      "input": ["SPEC", "technical design", "current repo state"],
+      "output": ["go", "return", "blocked"],
+      "next": ["implementation", "design", "requirements"]
+    },
+    {
+      "id": "implementation",
+      "role": "Development",
+      "input": ["approved design"],
+      "output": ["code", "scripts", "docs"],
+      "next": ["review", "gate"]
+    },
+    {
+      "id": "review",
+      "role": "Code Review",
+      "input": ["diff", "SPEC", "technical design"],
+      "output": ["findings", "pass"],
+      "next": ["validation", "implementation", "design"]
+    },
+    {
+      "id": "validation",
+      "role": "Test Validation",
+      "input": ["diff", "acceptance criteria", "validation scripts"],
+      "output": ["validation result", "residual risk"],
+      "next": ["pm-close", "implementation"]
+    },
+    {
+      "id": "pm-close",
+      "role": "PM",
+      "input": ["review result", "validation result"],
+      "output": ["task-board update", "delivery summary"],
+      "next": ["done", "pm-route"]
+    }
+  ]
+}

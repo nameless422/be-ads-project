@@ -1,24 +1,14 @@
-# Scripts Guide
+# Repository Scripts Guide
 
-`scripts/` 按职责分组：
+根目录 `scripts/` 只放跨前后端的仓库级脚本。
 
-- `dev/`
-  本地基础设施和 Debezium 启动脚本。
-- `ops/`
-  服务启动、停止、状态查看脚本。
-- `verify/`
-  本地主链路和联调检查脚本。
+- `verify/verify_harness.sh`
+  统一检查 Harness 文档、CI 入口、后端 Go 测试和前端构建。
 
-常用顺序：
+后端运行、基础设施和链路验收脚本在 `be/scripts/`。日常优先用根目录 Makefile：
 
-1. `./scripts/ops/up.sh`
-2. `./scripts/ops/status.sh`
-3. `./scripts/verify/verify_local_stack.sh`
-4. `./scripts/ops/down.sh`
-
-如果你想分步调试：
-
-1. `./scripts/dev/dev_base_stack_up.sh`
-2. `./scripts/ops/start.sh`
-3. `./scripts/ops/status.sh`
-4. `./scripts/verify/verify_local_stack.sh`
+1. `make harness-check`
+2. `make up`
+3. `make status`
+4. `make verify`
+5. `make down`

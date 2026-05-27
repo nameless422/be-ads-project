@@ -8,20 +8,16 @@
 
 如果你需要更细的内容，按下面分工继续看：
 
-- [ADR-001 Target Stack](/Users/zhongyi.zhang/project/go/be_ads_project/docs/architecture/adr-001-target-stack.md)
+- [Harness Entry](../HARNESS.md)
+  只看 AI/人协作流程、dev-map、任务看板和统一验证入口
+- [ADR-001 Target Stack](architecture/adr-001-target-stack.md)
   只看技术选型决策和为什么这样选
-- [Distributed Raw Transform BI Architecture](/Users/zhongyi.zhang/project/go/be_ads_project/docs/architecture/distributed-raw-transform-bi-architecture.md)
+- [Distributed Raw Transform BI Architecture](architecture/distributed-raw-transform-bi-architecture.md)
   只看服务边界、数据流和扩容模型
-- [Raw Trans BI Field Lineage](/Users/zhongyi.zhang/project/go/be_ads_project/docs/architecture/raw-trans-bi-field-lineage.md)
+- [Raw Trans BI Field Lineage](architecture/raw-trans-bi-field-lineage.md)
   只看 raw/trans/bi 当前实际字段、来源和取数逻辑
-- [Implementation Roadmap](/Users/zhongyi.zhang/project/go/be_ads_project/docs/roadmap/implementation-roadmap.md)
-  只看当前状态、里程碑和后续顺序
-- [Google Ads Test To Real Runbook](/Users/zhongyi.zhang/project/go/be_ads_project/docs/runbooks/google-ads-test-to-real-runbook.md)
+- [Google Ads Test To Real Runbook](runbooks/google-ads-test-to-real-runbook.md)
   只看 Google Ads 接入和从测试切到真实账号的操作
-- [Google Ads Field Expansion Plan](/Users/zhongyi.zhang/project/go/be_ads_project/docs/runbooks/google-ads-field-expansion-plan.md)
-  只看 Google Ads 常见面板字段、优化师高频字段、当前差距和系统改造方案
-- [Data Ingestion Tech Design](/Users/zhongyi.zhang/project/go/be_ads_project/docs/archive/data-ingestion-tech-design.md)
-  只作历史背景参考，不作为当前实现依据
 
 ## 项目介绍
 
@@ -33,6 +29,17 @@
 - `collector-worker`
 - `transformer-worker`
 - `bi-api`
+
+仓库按前后端分区维护：
+
+- `be/`
+  后端 Go module、服务入口、internal 模块、vendor、后端脚本和后端配置。
+- `fe/`
+  React / Vite / TypeScript 前端源码。
+- `scripts/`
+  跨前后端的仓库级 Harness 检查脚本。
+- `docs/`
+  架构、runbook 和 Harness 文档入口。
 
 当前主链路已经支持：
 

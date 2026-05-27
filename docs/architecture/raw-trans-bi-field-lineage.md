@@ -24,17 +24,17 @@
 
 对应主代码位置:
 
-- raw 写入: `internal/modules/collection/application/service.go`
-- raw 表结构: `internal/modules/collection/infrastructure/rawstore/mysql/repository.go`
-- trans 标准模型: `internal/shared/ads/normalized.go`
-- normalizer: `internal/modules/transformation/infrastructure/normalizer/`
+- raw 写入: `be/internal/modules/collection/application/service.go`
+- raw 表结构: `be/internal/modules/collection/infrastructure/rawstore/mysql/repository.go`
+- trans 标准模型: `be/internal/shared/ads/normalized.go`
+- normalizer: `be/internal/modules/transformation/infrastructure/normalizer/`
 - trans 投影:
-  - MySQL: `internal/modules/transformation/infrastructure/projector/mysql/projector.go`
-  - ClickHouse: `internal/modules/transformation/infrastructure/projector/clickhouse/projector.go`
+  - MySQL: `be/internal/modules/transformation/infrastructure/projector/mysql/projector.go`
+  - ClickHouse: `be/internal/modules/transformation/infrastructure/projector/clickhouse/projector.go`
 - BI 查询:
-  - MySQL: `internal/modules/reporting/infrastructure/mysql/repository.go`
-- ClickHouse: `internal/modules/reporting/infrastructure/clickhouse/repository.go`
-  - API/UI: `internal/modules/reporting/infrastructure/httpapi/server.go`
+  - MySQL: `be/internal/modules/reporting/infrastructure/mysql/repository.go`
+- ClickHouse: `be/internal/modules/reporting/infrastructure/clickhouse/repository.go`
+  - API/UI: `be/internal/modules/reporting/infrastructure/httpapi/server.go`
 
 ## 1.1 通用字段口径说明
 
@@ -130,7 +130,7 @@
 
 #### `raw_records`
 
-表结构来自 `internal/modules/collection/infrastructure/rawstore/mysql/repository.go`:
+表结构来自 `be/internal/modules/collection/infrastructure/rawstore/mysql/repository.go`:
 
 | 字段 | 含义 | 来源 |
 | --- | --- | --- |
@@ -171,7 +171,7 @@
 
 ### 2.2 raw 是怎么写进去的
 
-入口在 `internal/modules/collection/application/service.go` 的 `HandleJob`:
+入口在 `be/internal/modules/collection/application/service.go` 的 `HandleJob`:
 
 1. 先通过 `resolver.ResolveTarget` 拿到 profile / account / credential。
 2. 再通过 `collector.Collect` 调平台 connector。
@@ -207,8 +207,8 @@
 
 来源:
 
-- 实时采集: `internal/modules/collection/infrastructure/connectors/googleads/real_client.go`
-- 标准化消费: `internal/modules/transformation/infrastructure/normalizer/googleads_normalizer.go`
+- 实时采集: `be/internal/modules/collection/infrastructure/connectors/googleads/real_client.go`
+- 标准化消费: `be/internal/modules/transformation/infrastructure/normalizer/googleads_normalizer.go`
 
 ##### `object_type=campaign`
 
@@ -292,8 +292,8 @@ raw payload 当前会被消费这些字段:
 
 来源:
 
-- connector: `internal/modules/collection/infrastructure/connectors/facebook/connector.go`
-- normalizer: `internal/modules/transformation/infrastructure/normalizer/facebook_normalizer.go`
+- connector: `be/internal/modules/collection/infrastructure/connectors/facebook/connector.go`
+- normalizer: `be/internal/modules/transformation/infrastructure/normalizer/facebook_normalizer.go`
 
 ##### `object_type=campaign`
 
@@ -351,8 +351,8 @@ raw payload 当前会被消费这些字段:
 
 来源:
 
-- connector: `internal/modules/collection/infrastructure/connectors/tiktok/connector.go`
-- normalizer: `internal/modules/transformation/infrastructure/normalizer/tiktok_normalizer.go`
+- connector: `be/internal/modules/collection/infrastructure/connectors/tiktok/connector.go`
+- normalizer: `be/internal/modules/transformation/infrastructure/normalizer/tiktok_normalizer.go`
 
 ##### `object_type=campaign`
 
@@ -415,7 +415,7 @@ raw payload 当前会被消费这些字段:
 
 ## 3.1 trans 的统一标准模型
 
-标准模型定义在 `internal/shared/ads/normalized.go`。
+标准模型定义在 `be/internal/shared/ads/normalized.go`。
 
 当前 trans 层的统一结构有:
 
@@ -532,7 +532,7 @@ raw payload 当前会被消费这些字段:
 
 ## 3.2 trans 是怎么来的
 
-入口在 `internal/modules/transformation/application/worker.go` + `service.go`:
+入口在 `be/internal/modules/transformation/application/worker.go` + `service.go`:
 
 1. transformer 消费 `RawEvent`。
 2. 用 `RawRecordIDs` 回 raw mysql 取记录。
@@ -554,7 +554,7 @@ raw payload 当前会被消费这些字段:
 
 ### `oltp_accounts`
 
-表结构在 `internal/modules/transformation/infrastructure/projector/mysql/projector.go`:
+表结构在 `be/internal/modules/transformation/infrastructure/projector/mysql/projector.go`:
 
 | 字段 | 来源 |
 | --- | --- |
@@ -636,7 +636,7 @@ raw payload 当前会被消费这些字段:
 
 ### `olap_insights`
 
-表结构在 `internal/modules/transformation/infrastructure/projector/clickhouse/projector.go`:
+表结构在 `be/internal/modules/transformation/infrastructure/projector/clickhouse/projector.go`:
 
 | 字段 | 来源 |
 | --- | --- |
@@ -700,7 +700,7 @@ raw payload 当前会被消费这些字段:
 
 ## 3.5 trans 还会写 BI snapshot
 
-`internal/modules/reporting/application/service.go` 会把每个 normalized batch 合并到 `bi_account_snapshots`。
+`be/internal/modules/reporting/application/service.go` 会把每个 normalized batch 合并到 `bi_account_snapshots`。
 
 当前 snapshot 字段:
 
@@ -742,7 +742,7 @@ raw payload 当前会被消费这些字段:
 
 ### BI API / 页面入口
 
-定义在 `internal/modules/reporting/infrastructure/httpapi/server.go`:
+定义在 `be/internal/modules/reporting/infrastructure/httpapi/server.go`:
 
 - `GET /api/bi/snapshots`
 - `GET /api/bi/campaigns`
@@ -1071,7 +1071,7 @@ raw payload 当前会被消费这些字段:
 
 - 广告侧: `clickhouse.olap_insights`
 - 游戏侧: `serving mysql.bi_game_kpis`
-- 合并逻辑: `internal/modules/reporting/application/ua_report_service.go`
+- 合并逻辑: `be/internal/modules/reporting/application/ua_report_service.go`
 
 字段解释补充:
 

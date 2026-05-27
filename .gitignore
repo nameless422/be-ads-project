@@ -1,7 +1,13 @@
 logs/
 run/
+be/logs/
+be/run/
 .idea/
 .DS_Store
 .env
 .env.local
 .env.*.local
+fe/node_modules/
+fe/dist/
+fe/*.tsbuildinfo
+fe/.vite-temp/

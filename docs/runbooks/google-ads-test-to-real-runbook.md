@@ -21,7 +21,7 @@
 ### Manager 与 Developer Token
 
 - `production manager account`: `284-020-6764`
-- `developer token`: `yOCuBAsqVI0UyT94T7jDow`
+- `developer token`: 使用你自己的 Google Ads developer token，不要写入仓库
 - `developer token access level`: `Test Account`
 
 ### Test Hierarchy
@@ -46,7 +46,7 @@
 
 - `Testing` 状态下，只有加到 test users 的账号可以授权
 - 当前仓库已经提供本地 OAuth helper：
-  - [`cmd/google_oauth_bootstrap/main.go`](/Users/zhongyi.zhang/project/go/be_ads_project/cmd/google_oauth_bootstrap/main.go)
+  - [`be/cmd/google_oauth_bootstrap/main.go`](../../be/cmd/google_oauth_bootstrap/main.go)
 
 ## Google 官方限制
 
@@ -215,13 +215,13 @@ The developer hasn’t given you access to this app
 
 参考文件：
 
-- [.env.google-ads.example](/Users/zhongyi.zhang/project/go/be_ads_project/.env.google-ads.example)
+- [be/.env.google-ads.example](../../be/.env.google-ads.example)
 
 真实模式所需配置：
 
 ```bash
 export BE_GOOGLE_ADS_MODE=real
-export BE_GOOGLE_ADS_DEVELOPER_TOKEN=yOCuBAsqVI0UyT94T7jDow
+export BE_GOOGLE_ADS_DEVELOPER_TOKEN=your_developer_token
 export BE_GOOGLE_ADS_LOGIN_CUSTOMER_ID=3575940005
 export BE_GOOGLE_ADS_CLIENT_ID=your_client_id
 export BE_GOOGLE_ADS_CLIENT_SECRET=your_client_secret
@@ -240,7 +240,7 @@ export BE_GOOGLE_ADS_API_VERSION=v20
 仓库里已经有一个 helper，可以直接拉起浏览器授权并在本地回调端口换取 token：
 
 ```bash
-cd /Users/zhongyi.zhang/project/go/be_ads_project
+cd /path/to/be_ads_project/be
 BE_GOOGLE_ADS_CLIENT_ID=your_client_id \
 BE_GOOGLE_ADS_CLIENT_SECRET=your_client_secret \
 go run ./cmd/google_oauth_bootstrap
@@ -259,9 +259,9 @@ export BE_GOOGLE_ADS_REFRESH_TOKEN='...'
 ### seeded_test 模式
 
 ```bash
-cd /Users/zhongyi.zhang/project/go/be_ads_project
-./scripts/ops/start.sh
-tail -f /Users/zhongyi.zhang/project/go/be_ads_project/logs/collector-worker.stdout.log
+cd /path/to/be_ads_project
+./be/scripts/ops/start.sh
+tail -f be/logs/collector-worker.stdout.log
 ```
 
 你会看到：
@@ -277,15 +277,15 @@ tail -f /Users/zhongyi.zhang/project/go/be_ads_project/logs/collector-worker.std
 先导出环境变量，再启动：
 
 ```bash
-cd /Users/zhongyi.zhang/project/go/be_ads_project
+cd /path/to/be_ads_project
 export BE_GOOGLE_ADS_MODE=real
 export BE_GOOGLE_ADS_DEVELOPER_TOKEN=your_developer_token
 export BE_GOOGLE_ADS_LOGIN_CUSTOMER_ID=3575940005
 export BE_GOOGLE_ADS_CLIENT_ID=your_client_id
 export BE_GOOGLE_ADS_CLIENT_SECRET=your_client_secret
 export BE_GOOGLE_ADS_REFRESH_TOKEN=your_refresh_token
-./scripts/ops/start.sh
-tail -f /Users/zhongyi.zhang/project/go/be_ads_project/logs/collector-worker.stdout.log
+./be/scripts/ops/start.sh
+tail -f be/logs/collector-worker.stdout.log
 ```
 
 如果真实模式生效，日志应出现：
@@ -393,7 +393,7 @@ LIMIT 50
 - `BE_GOOGLE_ADS_CLIENT_ID`
 - `BE_GOOGLE_ADS_CLIENT_SECRET`
 - `BE_GOOGLE_ADS_REFRESH_TOKEN`
-- `internal/mock/data.go` 中内置的 test client account 列表
+- `be/internal/mock/data.go` 中内置的 test client account 列表
 
 ### 推荐做法
 
@@ -459,7 +459,7 @@ LIMIT 50
 2. 替换 `BE_GOOGLE_ADS_CLIENT_ID`
 3. 替换 `BE_GOOGLE_ADS_CLIENT_SECRET`
 4. 替换 `BE_GOOGLE_ADS_REFRESH_TOKEN`
-5. 把 `internal/mock/data.go` 里的 test account 清单替换成真实账号来源
+5. 把 `be/internal/mock/data.go` 里的 test account 清单替换成真实账号来源
 
 更推荐的长期做法：
 

@@ -335,13 +335,13 @@ control-plane
 当前仓库建议逐步改造成下面这种结构：
 
 ```text
-cmd/
+be/cmd/
   control-plane/
   collector-worker/
   transformer-worker/
   bi-api/
 
-internal/
+be/internal/
   collection/
     domain/
     application/

@@ -10,14 +10,14 @@
 
 ## 当前包含
 
-- `internal/modules/collection` 数据收集业务域
-- `internal/modules/transformation` 数据转换业务域
-- `internal/modules/reporting` BI 查询业务域
-- `internal/modules/controlplane` 任务分发业务域
-- `cmd/control-plane` 任务分发入口
-- `cmd/collector-worker` 数据采集 worker
-- `cmd/transformer-worker` raw 转换 worker
-- `cmd/bi-api` BI 查询 API
+- `be/internal/modules/collection` 数据收集业务域
+- `be/internal/modules/transformation` 数据转换业务域
+- `be/internal/modules/reporting` BI 查询业务域
+- `be/internal/modules/controlplane` 任务分发业务域
+- `be/cmd/control-plane` 任务分发入口
+- `be/cmd/collector-worker` 数据采集 worker
+- `be/cmd/transformer-worker` raw 转换 worker
+- `be/cmd/bi-api` BI 查询 API
 - 4 个服务统一接入 `Kratos` 生命周期
 - 平台 connector 抽象
 - Facebook / Google Ads / TikTok 接入骨架
@@ -28,6 +28,7 @@
 - ClickHouse OLAP 写入
 - BI HTTP 查询接口
 - raw outbox + Debezium CDC 链路
+- React / Vite / TypeScript 前端源码位于 `fe/`
 
 ## 开发入口
 
@@ -36,28 +37,31 @@
 ```bash
 make help
 make up
+make harness-check
 make test
+make frontend-build
 make verify
 make down
 ```
 
 协作约定和提交规范见：
 
-- [CONTRIBUTING.md](/Users/zhongyi.zhang/project/go/be_ads_project/CONTRIBUTING.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [HARNESS.md](HARNESS.md)
 
 ## 推荐目录结构
 
 当前仓库建议按下面的方式理解：
 
 ```text
-cmd/
+be/cmd/
   control-plane/         中心调度与 job 分发
   collector-worker/      拉平台数据，写 raw + outbox
   transformer-worker/    消费 raw event，做标准化并投影
   bi-api/                BI 查询接口
   google_oauth_bootstrap/ Google Ads OAuth 辅助工具
 
-internal/
+be/internal/
   modules/
     controlplane/
       application/       调度用例编排
@@ -93,7 +97,7 @@ internal/
   logx/                  日志初始化
   mock/                  mock 账号与 seeded test 数据
 
-scripts/
+be/scripts/
   dev/
     dev_base_stack_*.sh      本地 MySQL / ClickHouse / NATS 基础设施
     dev_debezium_*.sh        Debezium 本地联调
@@ -110,14 +114,17 @@ docs/
   runbooks/                  平台接入和联调手册
   roadmap/                   里程碑路线图
   archive/                   历史设计草案
+
+scripts/
+  verify/verify_harness.sh   跨前后端的仓库级 Harness 检查
 ```
 
 现在已经清掉的旧残留包括：
 
-- 旧单体入口 `cmd/server`
+- 旧单体入口 `be/cmd/server`
 - 旧散落式业务/技术混合目录
 - 旧内存版 BI repository
-- 旧单库脚本 `scripts/dev_db_up.sh` / `scripts/dev_db_down.sh`
+- 旧单库脚本 `be/scripts/dev_db_up.sh` / `be/scripts/dev_db_down.sh`
 
 ## 当前不包含
 
@@ -133,6 +140,7 @@ docs/
 ```bash
 make up
 make status
+make harness-check
 make test
 make verify
 make down
@@ -141,8 +149,8 @@ make down
 或者直接用脚本：
 
 ```bash
-./scripts/ops/up.sh
-./scripts/ops/down.sh
+./be/scripts/ops/up.sh
+./be/scripts/ops/down.sh
 ```
 
 ### 本地主链路
@@ -150,35 +158,35 @@ make down
 先启动基础设施：
 
 ```bash
-./scripts/dev/dev_base_stack_up.sh
+./be/scripts/dev/dev_base_stack_up.sh
 ```
 
 再启动 4 个服务：
 
 ```bash
-./scripts/ops/start.sh
+./be/scripts/ops/start.sh
 ```
 
 查看状态：
 
 ```bash
-./scripts/ops/status.sh
+./be/scripts/ops/status.sh
 ```
 
 自动验收：
 
 ```bash
-./scripts/verify/verify_local_stack.sh
+./be/scripts/verify/verify_local_stack.sh
 ```
 
 ### 服务运行时
 
 当前 4 个入口服务都已经切到 `Kratos` app runtime：
 
-- `cmd/control-plane`
-- `cmd/collector-worker`
-- `cmd/transformer-worker`
-- `cmd/bi-api`
+- `be/cmd/control-plane`
+- `be/cmd/collector-worker`
+- `be/cmd/transformer-worker`
+- `be/cmd/bi-api`
 
 `bi-api` 额外接了：
 
@@ -191,44 +199,44 @@ make down
 如果要验证 `outbox -> Debezium -> JetStream`：
 
 ```bash
-./scripts/dev/dev_base_stack_down.sh
-./scripts/dev/dev_base_stack_up.sh
-./scripts/dev/dev_debezium_up.sh
-BE_OUTBOX_TRANSPORT=debezium ./scripts/ops/start.sh
-./scripts/verify/verify_debezium_pipeline.sh
+./be/scripts/dev/dev_base_stack_down.sh
+./be/scripts/dev/dev_base_stack_up.sh
+./be/scripts/dev/dev_debezium_up.sh
+BE_OUTBOX_TRANSPORT=debezium ./be/scripts/ops/start.sh
+./be/scripts/verify/verify_debezium_pipeline.sh
 ```
 
 如果某个 Debezium 镜像版本在本机上不稳定，可以覆盖：
 
 ```bash
-DEBEZIUM_IMAGE=quay.io/debezium/server:3.4.3.Final ./scripts/dev/dev_debezium_up.sh
+DEBEZIUM_IMAGE=quay.io/debezium/server:3.4.3.Final ./be/scripts/dev/dev_debezium_up.sh
 ```
 
 关闭 Debezium：
 
 ```bash
-./scripts/dev/dev_debezium_down.sh
+./be/scripts/dev/dev_debezium_down.sh
 ```
 
 停止服务：
 
 ```bash
-./scripts/ops/stop.sh
+./be/scripts/ops/stop.sh
 ```
 
 停止基础设施：
 
 ```bash
-./scripts/dev/dev_base_stack_down.sh
+./be/scripts/dev/dev_base_stack_down.sh
 ```
 
 日志位于：
 
-- `logs/control-plane.log`
-- `logs/collector-worker.log`
-- `logs/transformer-worker.log`
-- `logs/bi-api.log`
-- `logs/*.stdout.log`
+- `be/logs/control-plane.log`
+- `be/logs/collector-worker.log`
+- `be/logs/transformer-worker.log`
+- `be/logs/bi-api.log`
+- `be/logs/*.stdout.log`
 
 ## BI 接口
 
@@ -266,7 +274,7 @@ export BE_GOOGLE_ADS_REFRESH_TOKEN=your_refresh_token
 
 完整执行说明见：
 
-- [项目总文档](/Users/zhongyi.zhang/project/go/be_ads_project/docs/README.md)
+- [项目总文档](docs/README.md)
 
 ## 目标技术栈
 
@@ -309,21 +317,21 @@ export BE_GOOGLE_ADS_REFRESH_TOKEN=your_refresh_token
 
 整体说明见：
 
-- [项目总文档](/Users/zhongyi.zhang/project/go/be_ads_project/docs/README.md)
+- [项目总文档](docs/README.md)
 
 ## 本地基础设施
 
 当前统一使用基础启动脚本：
 
 ```bash
-./scripts/dev/dev_base_stack_up.sh
-./scripts/dev/dev_base_stack_down.sh
+./be/scripts/dev/dev_base_stack_up.sh
+./be/scripts/dev/dev_base_stack_down.sh
 ```
 - `otel-collector`
 
 对应配置模板：
 
-- [.env.stack.example](/Users/zhongyi.zhang/project/go/be_ads_project/.env.stack.example)
+- [be/.env.stack.example](be/.env.stack.example)
 
 ## 推荐下一步
 
