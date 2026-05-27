@@ -50,6 +50,7 @@ check_harness_files() {
   require_file "docs/harness/README.md"
   require_file "docs/harness/dev-map.md"
   require_file "docs/harness/playbook.md"
+  require_file "docs/harness/sdd.md"
   require_file "docs/harness/workflow.md"
   require_file "docs/harness/workflow.json"
   require_file "docs/harness/task-board.md"

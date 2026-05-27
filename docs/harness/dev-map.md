@@ -9,7 +9,7 @@
 | 服务启动、生命周期、日志 | `be/cmd/*/main.go`、`be/internal/platform/kratosx/`、`be/internal/logx/` | `be/scripts/ops/*`、`README.md`、`be/scripts/README.md` | `make harness-check`，必要时 `make status` |
 | 调度、lease、shard | `be/internal/modules/controlplane/` | `collector-worker` 消费、`worker_leases`、`shard_assignments`、控制面 API | `make test`，影响本地链路时 `make verify` |
 | 采集任务执行 | `be/internal/modules/collection/application/`、`infrastructure/collector/` | connector、raw store、outbox、checkpoint | `make test`，影响数据链路时 `make verify` |
-| 平台 connector | `be/internal/modules/collection/infrastructure/connectors/` | `be/internal/shared/ads/`、normalizer、Google Ads runbook | `make test`，真实平台切换按 runbook 验证 |
+| 平台 connector | `be/internal/modules/collection/infrastructure/connectors/` | `be/internal/shared/ads/`、normalizer、平台字段 SDD | `make test`，真实平台切换按后端 SDD 和本地验证补充 |
 | raw store / outbox | `be/internal/modules/collection/infrastructure/rawstore/mysql/` | Debezium、JetStream、transformer-worker、verify scripts | `make test`，必要时 `make verify-debezium` |
 | 标准化转换 | `be/internal/modules/transformation/` | serving mysql、clickhouse、BI 查询字段 | `make test`，影响报表时 `make verify` |
 | BI 查询和 HTTP API | `be/internal/modules/reporting/`、`be/cmd/bi-api/` | 前端调用、curl 示例、字段文档 | `make test`，影响接口时 `make verify` |
@@ -33,6 +33,18 @@
 
 不要手改 `fe/dist` 来代表源码变更。除非任务明确是修复已发布静态产物，否则应恢复或修改 `fe/src` 后重新构建。
 
+## SDD 落点
+
+| 改动范围 | 优先 SDD |
+| --- | --- |
+| 后端服务边界、启动、脚本和本地验收 | `be/openspec/changes/002-mac-local-bootstrap`、`be/specs/002-mac-local-bootstrap` |
+| 后端模块、API、存储、消息和基础能力 | `be/openspec/changes/001-backend-sdd-baseline`、`be/specs/001-backend-sdd-baseline` |
+| BI Overview、指标口径、业务数据基础 | `be/specs/003-bi-overview-business-data-foundation` |
+| 前端 BI 页面重构和源码结构 | `fe/openspec/changes/001-react-bi-refactor`、`fe/specs/001-react-bi-refactor` |
+| Overview 用户反馈、指标展示和阶段性限制 | `fe/openspec/changes/002-bi-overview-user-feedback` |
+
+如果一个需求跨后端和前端，不要只更新其中一边：后端 SDD 写 API/字段/数据来源，前端 SDD 写页面入口/展示口径/错误态，Harness task 写这次任务的阶段和验证。
+
 ## 常用入口
 
 ```bash
@@ -46,6 +58,6 @@ make verify-debezium
 ## 文档联动
 
 - 改运行方式：同步 `README.md`、`scripts/README.md`、`be/scripts/README.md`、`docs/harness/playbook.md`。
-- 改字段：同步 `be/README.md` 或对应 `be/openspec/` / `be/specs/`。
-- 改 Google Ads 真实接入：同步 `be/README.md` 和对应后端 SDD 文档。
+- 改字段或指标口径：同步 `be/README.md`、对应 `be/openspec/` / `be/specs/`，影响展示时同步 `fe/openspec/` / `fe/specs/`。
+- 改 Google Ads 真实接入：同步 `be/README.md` 和对应后端 SDD；涉及页面指标时同步前端 SDD。
 - 改任务阶段或交付结论：同步 `docs/harness/task-board.md`。

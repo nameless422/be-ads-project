@@ -28,6 +28,7 @@
 | CDC | Debezium | outbox 到消息流的可选联调路径 |
 | 本地环境 | Docker Desktop | MySQL、ClickHouse、NATS 等依赖 |
 | 开发入口 | Makefile + shell scripts | 本地启动、停止、验证 |
+| Harness | AGENTS + HARNESS + docs/harness | AI/人协作流程、任务阶段、验证 gate |
 | SDD | OpenSpec + Spec Kit | 需求、方案、任务和长期约束 |
 
 ## 系统架构
@@ -116,7 +117,7 @@ be_ads_project/
 
 ```bash
 git clone git@github.com:nameless422/be-ads-project.git
-cd be-ads-project/be
+cd be-ads-project
 make mac-start
 ```
 
@@ -132,7 +133,6 @@ http://127.0.0.1:8080/bi
 ### 日常开发
 
 ```bash
-cd be
 make up
 make verify
 make status
@@ -143,15 +143,15 @@ make down
 
 ```bash
 cd fe
-npm install
+npm ci
 npm run dev
 ```
 
 ## 常用命令
 
 ```bash
-cd be
 make help              # 查看所有命令
+make harness-check     # 仓库级 Harness 检查
 make mac-start         # Mac 新环境一键启动
 make up                # 启动 MySQL / ClickHouse / NATS 和 4 个后端服务
 make verify            # 验收本地主链路
@@ -160,6 +160,25 @@ make down              # 停止本地栈
 make test              # 执行 go test ./...
 make frontend-build    # 构建 React 前端
 ```
+
+## 开发工作流：Harness 驱动 SDD
+
+本仓库不把 Harness 和 SDD 当成两套平行流程。推荐模型是：**Harness 统一接需求、控阶段和做验证；SDD 在 Harness 流程中作为长期设计沉淀被更新**。
+
+| 产物 | 入口 | 在流程里负责什么 |
+| --- | --- | --- |
+| Harness | [HARNESS.md](HARNESS.md)、[docs/harness](docs/harness/README.md) | 接需求、分阶段、找代码落点、规定验证和 PR gate |
+| SDD | [docs/harness/sdd.md](docs/harness/sdd.md)、`be/openspec`、`be/specs`、`fe/openspec`、`fe/specs` | 保存后端、前端和跨模块能力的长期设计决策 |
+
+日常需求默认流程：
+
+1. 先读 [AGENTS.md](AGENTS.md) 和 [HARNESS.md](HARNESS.md)。
+2. 在 [docs/harness/playbook.md](docs/harness/playbook.md) 判断任务类型和最少动作。
+3. 动代码前查 [docs/harness/dev-map.md](docs/harness/dev-map.md)，确认后端、前端、脚本或文档落点。
+4. 涉及 API、字段、数据链路、页面重构或跨前后端联动时，按 [docs/harness/sdd.md](docs/harness/sdd.md) 同步更新对应 SDD。
+5. 收尾至少跑 `make harness-check`；改 Go 代码跑 `make test`，改前端跑 `make frontend-build`，改主链路跑 `make verify`。
+
+简单文案、小修和一次性排查可以只走 Harness 记录和验证；复杂需求要把阶段文档放到 `docs/harness/tasks/YYYYMMDD-<slug>/`，并在方案阶段判断是否需要更新对应 SDD。
 
 ## API 和页面
 
@@ -209,7 +228,24 @@ fe/specs      前端 Spec Kit
 
 - 小功能、局部改动：OpenSpec
 - 跨模块重构、API/数据链路变化：Spec Kit
-- 临时排查和一次性修复：直接对话或 issue 记录
+- 临时排查和一次性修复：Harness task-board 或 issue 记录
+
+当前已有的主要 SDD：
+
+```text
+be/openspec/changes/001-backend-sdd-baseline
+be/specs/001-backend-sdd-baseline
+be/openspec/changes/002-mac-local-bootstrap
+be/specs/002-mac-local-bootstrap
+be/specs/003-bi-overview-business-data-foundation
+fe/openspec/changes/001-react-bi-refactor
+fe/specs/001-react-bi-refactor
+fe/openspec/changes/002-bi-overview-user-feedback
+```
+
+Harness 不替代 SDD，也不与 SDD 平行抢入口：所有需求先从 Harness 进，只有留下长期接口、字段、链路、页面或运行规则时，才把设计结论同步到 SDD。
+
+SDD 的完整索引和更新规则见 [docs/harness/sdd.md](docs/harness/sdd.md)。
 
 ## 更多说明
 

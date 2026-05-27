@@ -6,6 +6,7 @@ This repository uses the project Harness documented in [HARNESS.md](HARNESS.md).
 
 - Read [HARNESS.md](HARNESS.md) first for the project workflow.
 - Read [docs/harness/dev-map.md](docs/harness/dev-map.md) before code changes.
+- Read [docs/harness/sdd.md](docs/harness/sdd.md) when a change affects long-lived API, field, data-flow, page, or runtime design.
 - For complex or cross-module work, create or update a SPEC from [docs/harness/tasks/_template/01-spec.md](docs/harness/tasks/_template/01-spec.md).
 
 ## Boundaries
@@ -28,4 +29,5 @@ This repository uses the project Harness documented in [HARNESS.md](HARNESS.md).
 
 - Update `docs/harness/task-board.md` when a task changes stage, blocks, or reaches a durable conclusion.
 - Update `docs/harness/dev-map.md` when module entrypoints, ownership, or frontend source layout changes.
+- Update backend or frontend SDD according to `docs/harness/sdd.md` when a change leaves durable design constraints.
 - Update `docs/harness/playbook.md`, `scripts/README.md`, `be/scripts/README.md`, and `Makefile help` when validation commands change.

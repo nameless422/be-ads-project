@@ -228,7 +228,9 @@ make verify
 
 ## SDD
 
-前端保留两套 SDD：
+前端 SDD 跟随 Harness 工作流更新，不单独开一条平行流程。需求先从根目录 [../HARNESS.md](../HARNESS.md) 和 [../docs/harness/playbook.md](../docs/harness/playbook.md) 进入；当任务影响页面结构、路由、API client、指标展示口径、错误态或跨页面能力时，再按 [../docs/harness/sdd.md](../docs/harness/sdd.md) 同步这里的 SDD。
+
+前端保留两类 SDD 产物：
 
 ```text
 openspec/   轻量变更说明，适合页面和局部交互调整
@@ -243,3 +245,17 @@ openspec/project.md
 openspec/specs/bi-dashboard/spec.md
 specs/001-react-bi-refactor/spec.md
 ```
+
+当前主要前端 SDD：
+
+```text
+openspec/changes/001-react-bi-refactor
+specs/001-react-bi-refactor
+openspec/changes/002-bi-overview-user-feedback
+```
+
+更新规则：
+
+- 文案或样式小修：通常只更新 Harness 记录和 README。
+- 页面结构、路由、状态模型或 API client 变化：更新 `openspec/changes/*` 或 `specs/*`。
+- 指标展示口径变化：同时确认后端 SDD 是否需要更新，避免前端展示和 API/数据来源分叉。
