@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
 
-.PHONY: help fmt test frontend-install frontend-build frontend-dev mac-start up down start stop status verify verify-debezium \
+.PHONY: help fmt test frontend-install frontend-build frontend-dev mac-start up down start stop status verify harness-check verify-debezium \
 	infra-up infra-down debezium-up debezium-down clean
 
 help:
@@ -17,6 +17,7 @@ help:
 	@printf "%-22s %s\n" "make frontend-dev" "启动 React BI 前端开发服务器"
 	@printf "%-22s %s\n" "make mac-start" "Mac 新环境一键检查、安装、启动和验收"
 	@printf "%-22s %s\n" "make verify" "执行本地主链路验收"
+	@printf "%-22s %s\n" "make harness-check" "执行 Harness 统一静态验收"
 	@printf "%-22s %s\n" "make verify-debezium" "执行 Debezium 链路验收"
 	@printf "%-22s %s\n" "make infra-up" "启动 MySQL / ClickHouse / NATS"
 	@printf "%-22s %s\n" "make infra-down" "关闭 MySQL / ClickHouse / NATS"
@@ -62,6 +63,9 @@ status:
 
 verify:
 	@./scripts/verify/verify_local_stack.sh
+
+harness-check:
+	@../scripts/verify/verify_harness.sh
 
 debezium-up:
 	@./scripts/dev/dev_debezium_up.sh
