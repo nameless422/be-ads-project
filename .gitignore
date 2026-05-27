@@ -3,6 +3,7 @@ be/run/
 be/tmp/
 fe/node_modules/
 fe/dist/
+.idea/
 .DS_Store
 .env
 .env.local
