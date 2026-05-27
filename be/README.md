@@ -243,7 +243,9 @@ make debezium-down
 
 ## SDD
 
-后端同时保留两套 SDD：
+后端 SDD 不单独作为另一套开发流程入口，而是在 Harness 流程中被更新。需求先从根目录 [../HARNESS.md](../HARNESS.md) 和 [../docs/harness/playbook.md](../docs/harness/playbook.md) 进入；当任务影响后端长期接口、字段、存储、消息、worker 或本地运行规则时，再按 [../docs/harness/sdd.md](../docs/harness/sdd.md) 同步这里的 SDD。
+
+后端保留两类 SDD 产物：
 
 ```text
 openspec/   轻量变更说明，适合局部功能和 API 调整
@@ -259,6 +261,22 @@ openspec/specs/backend-runtime/spec.md
 openspec/specs/bi-api/spec.md
 openspec/specs/data-pipeline/spec.md
 ```
+
+当前主要后端 SDD：
+
+```text
+openspec/changes/001-backend-sdd-baseline
+specs/001-backend-sdd-baseline
+openspec/changes/002-mac-local-bootstrap
+specs/002-mac-local-bootstrap
+specs/003-bi-overview-business-data-foundation
+```
+
+更新规则：
+
+- 局部 API、配置或脚本调整：优先更新 `openspec/changes/*` 或对应 `openspec/specs/*`。
+- 跨模块、数据链路、BI 指标口径或存储结构变化：更新 `specs/*`。
+- 前后端联动时，后端 SDD 写 API/字段/数据来源，前端 SDD 写页面/交互/展示口径，Harness task 写阶段和验证结论。
 
 ## 常见排查
 

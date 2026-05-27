@@ -35,7 +35,7 @@ make harness-check
 如果某个 Codex 环境没有自动读取根规则，把这句话发给它：
 
 ```text
-请先阅读 AGENTS.md、HARNESS.md、docs/harness/playbook.md、docs/harness/dev-map.md 和 docs/harness/workflow.md，然后按里面的流程继续。
+请先阅读 AGENTS.md、HARNESS.md、docs/harness/playbook.md、docs/harness/dev-map.md、docs/harness/sdd.md 和 docs/harness/workflow.md，然后按里面的流程继续。
 ```
 
 ## 任务类型
@@ -49,6 +49,34 @@ make harness-check
 | frontend-change | 页面样式、筛选项、文案、API client | 改 `fe/src`，跑 `make frontend-build` + `make harness-check` |
 | full-stack-change | 新页面、新接口、新字段、新状态 | 建任务文档，写清 API contract、页面入口、错误态和联调方式 |
 | startup-debug | 本地启动、状态、健康检查、服务日志、端口问题 | 查状态和日志，用 `/healthz` 交叉验证，必要时跑 `make verify` |
+
+## Harness + SDD 怎么配合
+
+本仓库的判断是：**整合流程比平行流程更好**。平行流程容易让同一个需求同时出现在 Harness task、OpenSpec 和 Spec Kit 里，后续不知道哪个是权威；完全合并目录又会让一次任务记录和长期设计混在一起。现在采用一条路线：
+
+```text
+需求 -> Harness 路由/阶段/验证 -> 必要时更新 SDD -> task-board 收口
+```
+
+默认规则：
+
+| 场景 | Harness 动作 | SDD 动作 |
+| --- | --- | --- |
+| 文案、README、脚本说明 | 更新相关 README / Harness 文档，跑 `make harness-check` | 通常不需要 |
+| 后端接口、字段、worker、存储、消息链路 | 查 `dev-map`，必要时建 `docs/harness/tasks/*` | 更新 `be/openspec` 或 `be/specs` |
+| 前端页面、路由、交互、API client | 查前端主图，记录页面入口和验证方式 | 更新 `fe/openspec` 或 `fe/specs` |
+| 前后端联动 | 建 Harness 任务文档，SPEC 写清 API contract、页面入口和验收标准 | 后端 SDD 写接口/数据契约，前端 SDD 写页面/交互契约 |
+| 临时排查 | task-board 或 issue 记录结论和未验证项 | 只有沉淀为长期规则时再补 |
+
+优先复用已有 SDD，不为每个小改动新建一套目录。已有入口：
+
+```text
+docs/harness/sdd.md
+be/openspec/project.md
+be/specs/003-bi-overview-business-data-foundation/spec.md
+fe/openspec/project.md
+fe/specs/001-react-bi-refactor/spec.md
+```
 
 ## 固定动作
 
@@ -71,26 +99,29 @@ make harness-check
 1. 复制 [tasks/_template](tasks/_template) 建阶段文档。
 2. 在 SPEC 写清数据来源、字段、消息、幂等和回滚。
 3. 在 Design 写清影响的 service、store、topic 和查询接口。
-4. 通过 Gate 后实现。
-5. 执行 `make harness-check`、`make test`。
-6. 影响主链路跑 `make verify`，影响 CDC 跑 `make verify-debezium`。
+4. 同步对应后端 SDD，字段和链路变化优先放 `be/specs`。
+5. 通过 Gate 后实现。
+6. 执行 `make harness-check`、`make test`。
+7. 影响主链路跑 `make verify`，影响 CDC 跑 `make verify-debezium`。
 
 ### frontend-change
 
 1. 从 `fe/package.json`、`fe/src/`、`fe/vite.config.ts` 和 `fe/tsconfig.json` 修改源码。
 2. 不把 `fe/dist` 或 `fe/node_modules` 当源码入口。
 3. 写清页面入口、API、空态、错误态和移动端验证。
-4. 执行 `make frontend-build`，再执行 `make harness-check`。
-5. 页面行为变化需要浏览器验证主要路径。
+4. 页面结构、路由、API client 或指标口径变化时同步前端 SDD。
+5. 执行 `make frontend-build`，再执行 `make harness-check`。
+6. 页面行为变化需要浏览器验证主要路径。
 
 ### full-stack-change
 
 1. 复制 [tasks/_template](tasks/_template) 建阶段文档。
 2. SPEC 必须写清 API contract、页面入口、错误态、权限和验收标准。
 3. Design 同时列出后端落点和前端落点。
-4. 先保证后端接口可验证，再接前端。
-5. 执行 `make harness-check`、`make test`、必要的 `make verify`。
-6. 执行 `make frontend-build` 和浏览器验证。
+4. 后端 SDD 记录接口、字段、存储和数据链路；前端 SDD 记录页面、状态和交互契约。
+5. 先保证后端接口可验证，再接前端。
+6. 执行 `make harness-check`、`make test`、必要的 `make verify`。
+7. 执行 `make frontend-build` 和浏览器验证。
 
 ### startup-debug
 
@@ -117,6 +148,8 @@ cp -R docs/harness/tasks/_template docs/harness/tasks/YYYYMMDD-<slug>
 04-review.md      代码审查结果
 05-validation.md  验证结果、未验证项、交付摘要
 ```
+
+这些阶段文件不替代 SDD。它们记录一次任务的推进过程；如果任务留下了新的接口、字段、页面结构或运行规则，要把长期结论同步回 `be/openspec`、`be/specs`、`fe/openspec` 或 `fe/specs`。
 
 SPEC 至少写清：
 

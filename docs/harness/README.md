@@ -9,6 +9,8 @@
 | 代码地图 | `dev-map.md` | 后端、前端、脚本、文档分别改哪里 |
 | 流程边界 | `workflow.md`、`workflow.json` | 阶段流转、角色边界、回退规则、机器可读状态表 |
 | 任务记录 | `task-board.md`、`tasks/_template/` | 当前任务状态和复杂任务阶段文档 |
+| SDD 导航 | `sdd.md` | SDD 和 Harness 的分工、存放位置、更新规则和当前索引 |
+| 设计档案 | `be/openspec`、`be/specs`、`fe/openspec`、`fe/specs` | 后端/前端长期设计、接口和数据契约 |
 | 自动反馈 | `scripts/verify/verify_harness.sh`、`.github/workflows/harness-check.yml` | 交付结果由脚本和 CI 判定，不只靠口头说明 |
 
 ## 仓库画像
@@ -32,16 +34,29 @@ control-plane
 1. AI 执行者先读根规则 [../../AGENTS.md](../../AGENTS.md)。
 2. 新需求先查 [task-board.md](task-board.md)，确认是不是旧任务延续。
 3. 动代码前查 [dev-map.md](dev-map.md)，确认模块落点和影响面。
-4. 需求进入开发时按 [playbook.md](playbook.md) 判断轻重、Codex 用法和验证范围。
-5. 复杂任务先写 SPEC，模板见 [tasks/_template/01-spec.md](tasks/_template/01-spec.md)。
-6. 按 [workflow.md](workflow.md) 走阶段；机器可读定义见 [workflow.json](workflow.json)。
-7. 收尾默认先跑 `make harness-check`。
+4. 需求进入开发时按 [playbook.md](playbook.md) 判断轻重、Codex 用法、SDD 更新范围和验证范围。
+5. 涉及长期设计时按 [sdd.md](sdd.md) 同步对应 SDD；后端看 [../../be/README.md](../../be/README.md)，前端看 [../../fe/README.md](../../fe/README.md)。
+6. 复杂任务先写 SPEC，模板见 [tasks/_template/01-spec.md](tasks/_template/01-spec.md)。
+7. 按 [workflow.md](workflow.md) 走阶段；机器可读定义见 [workflow.json](workflow.json)。
+8. 收尾默认先跑 `make harness-check`。
+
+## 与 SDD 的关系
+
+判断结果：**不平行维护两套流程，也不物理合并成一个目录；统一成一条 Harness 工作流，保留 SDD 作为设计沉淀产物**。具体索引和更新规则见 [sdd.md](sdd.md)。
+
+- Harness 负责接需求、拆阶段、记录验证和交付结论。
+- SDD 负责沉淀后端、前端和跨模块能力的长期设计。
+- `docs/harness/tasks/*` 记录“这次任务怎么推进”；`be/specs/*`、`fe/specs/*` 记录“能力以后怎么理解和延续”。
+- full-stack 需求通常同时更新 Harness 任务文档、后端 SDD 和前端 SDD。
+
+所以新需求的入口永远是 Harness；只有当任务会留下长期接口、字段、链路、页面结构或运行规则时，才更新 SDD。这样避免两套流程互相打架，也避免把所有内容堆成一份难维护的大文档。
 
 ## 维护规则
 
 - 改了目录或服务边界：更新 `dev-map.md`、根 [README](../../README.md)、[be/README](../../be/README.md) 或 [fe/README](../../fe/README.md)。
 - 改了运行或验证方式：更新 `playbook.md`、`scripts/README.md`、`be/scripts/README.md` 和 `Makefile help`。
 - 改了任务阶段、结论或阻塞项：更新 `task-board.md`。
+- 改了 API、字段、数据链路或页面结构：同步对应 `be/openspec` / `be/specs` / `fe/openspec` / `fe/specs`。
 - 能被脚本判定的规则，优先沉到 `scripts/verify/verify_harness.sh`，再在文档里解释。
 - 复杂任务复制 `docs/harness/tasks/_template/`，不要把阶段结论只留在聊天里。
 - PR 走 `.github/PULL_REQUEST_TEMPLATE.md`，新需求优先用 `.github/ISSUE_TEMPLATE/feature_request.yml` 收集目标、范围和验收标准。
